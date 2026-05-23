@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { format } from 'date-fns';
 
 // --- TIPOS ---
 export interface DbColumn {
@@ -27,37 +28,49 @@ export interface DbItem {
 export const api = {
   
   getDashboardData: async () => {
+    // 1. Obtención de sesión segura
     const { data: { session } } = await supabase.auth.getSession();
     const user = session?.user || (await supabase.auth.getUser()).data.user;
-    if (!user) throw new Error("No usuario");
+    if (!user) throw new Error("Usuario no autenticado");
 
-    // GENERADOR AUTOMÁTICO
+    // 2. Control del Timezone local con date-fns
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const today = new Date();
+    const currentDayOfWeek = today.getDay(); 
+    const currentDayOfMonth = today.getDate(); 
+
+    // GENERADOR AUTOMÁTICO (Optimizado con Batching)
     const { data: templates } = await supabase
-      .from('items').select('*').eq('user_id', user.id).eq('is_template', true);
+      .from('items')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_template', true);
 
     if (templates && templates.length > 0) {
-      const today = new Date();
-      const todayStr = today.toISOString().split('T')[0]; 
-      const currentDayOfWeek = today.getDay(); 
-      const currentDayOfMonth = today.getDate(); 
-
       const { data: firstColumn } = await supabase
-        .from('columns').select('id').eq('user_id', user.id).order('position', { ascending: true }).limit(1).maybeSingle();
+        .from('columns')
+        .select('id')
+        .eq('user_id', user.id)
+        .order('position', { ascending: true })
+        .limit(1)
+        .maybeSingle();
 
       if (firstColumn) {
+        const itemsToInsert: any[] = [];
+        const templatesToUpdate: string[] = [];
+
+        // Evaluación en memoria (Sin llamadas de red)
         for (const template of templates) {
+          if (template.last_generated === todayStr) continue;
+
           let shouldGenerate = false;
-          if (template.last_generated === todayStr) {
-            shouldGenerate = false;
-          } else {
-            if (template.recurrence === 'daily') shouldGenerate = true;
-            else if (template.recurrence === 'weekly' && template.recurrence_day === currentDayOfWeek) shouldGenerate = true;
-            else if (template.recurrence === 'monthly' && template.recurrence_day === currentDayOfMonth) shouldGenerate = true;
-          }
+          if (template.recurrence === 'daily') shouldGenerate = true;
+          else if (template.recurrence === 'weekly' && template.recurrence_day === currentDayOfWeek) shouldGenerate = true;
+          else if (template.recurrence === 'monthly' && template.recurrence_day === currentDayOfMonth) shouldGenerate = true;
 
           if (shouldGenerate) {
-            console.log(`Generando rutina: ${template.title}`);
-            await supabase.from('items').insert({
+            console.log(`Cola de generación lista para: ${template.title}`);
+            itemsToInsert.push({
               user_id: user.id,
               column_id: firstColumn.id,
               type: template.type,
@@ -70,24 +83,45 @@ export const api = {
               recurrence: 'none',
               due_date: new Date().toISOString()
             });
-            await supabase.from('items').update({ last_generated: todayStr }).eq('id', template.id);
+            templatesToUpdate.push(template.id);
           }
+        }
+
+        // Ejecución Batch: 1 petición de inserción y 1 de actualización masiva
+        if (itemsToInsert.length > 0) {
+          await supabase.from('items').insert(itemsToInsert);
+          await supabase.from('items').update({ last_generated: todayStr }).in('id', templatesToUpdate);
         }
       }
     }
 
-    // CARGA NORMAL
-    let { data: columns, error: colError } = await supabase.from('columns').select('*').order('position', { ascending: true });
+    // CARGA NORMAL (Defensiva)
+    let { data: columns, error: colError } = await supabase
+      .from('columns')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('position', { ascending: true });
+      
     if (colError) throw colError;
 
+    // Creación de columnas por defecto si es usuario nuevo
     if (!columns || columns.length === 0) {
-      const defaultCols = [{ user_id: user.id, title: 'HOY [FOCUS]', position: 0 }, { user_id: user.id, title: 'ESTA SEMANA', position: 1 }];
+      const defaultCols = [
+        { user_id: user.id, title: 'HOY [FOCUS]', position: 0 }, 
+        { user_id: user.id, title: 'ESTA SEMANA', position: 1 }
+      ];
       const { data: newCols } = await supabase.from('columns').insert(defaultCols).select();
       columns = newCols;
     }
 
     const { data: items, error: itemError } = await supabase
-      .from('items').select('*').eq('is_template', false).order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
+      .from('items')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_template', false)
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true });
+      
     if (itemError) throw itemError;
 
     return { columns, items };
@@ -96,13 +130,13 @@ export const api = {
   // --- CRUD BÁSICO ---
   createColumn: async (title: string, position: number) => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("No user");
+    if (!user) throw new Error("Usuario no autenticado");
     return await supabase.from('columns').insert({ user_id: user.id, title, position }).select().single();
   },
 
   createItem: async (item: Partial<DbItem>) => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("No user");
+    if (!user) throw new Error("Usuario no autenticado");
     return await supabase.from('items').insert({
       user_id: user.id,
       title: item.title,
@@ -124,9 +158,8 @@ export const api = {
     return await supabase.from('items').update(updates).eq('id', id);
   },
 
-  // 🔥 NUEVA FUNCIÓN ROBUSTA PARA CHECK/UNCHECK 🔥
+  // 🔥 FUNCIÓN ROBUSTA PARA CHECK/UNCHECK (RPC) 🔥
   toggleTaskStatus: async (id: string, targetStatus: 'pending' | 'done') => {
-    // Llamamos a la función RPC segura del servidor
     return await supabase.rpc('toggle_task_status', { 
       task_id: id, 
       target_status: targetStatus 
@@ -154,12 +187,21 @@ export const api = {
 
   updateProfile: async (updates: any) => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("No usuario");
+    if (!user) throw new Error("Usuario no autenticado");
     return await supabase.from('profiles').update(updates).eq('id', user.id);
   },
   
   getRoutines: async () => {
-    const { data } = await supabase.from('items').select('*').eq('is_template', true);
+    // 🔒 Añadido chequeo de usuario para programación defensiva
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Usuario no autenticado");
+    
+    const { data } = await supabase
+      .from('items')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_template', true);
+      
     return data || [];
   }
 };

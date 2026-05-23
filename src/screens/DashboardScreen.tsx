@@ -12,6 +12,7 @@ import { Y2K_COLORS } from '../theme/colors';
 import { api } from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
 import { notificationService } from '../services/notifications';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface Task {
   id: string;
@@ -93,7 +94,7 @@ const LevelUpModal = ({ visible, level, onClose }: { visible: boolean, level: nu
 };
 
 export default function DashboardScreen({ navigation, onLogout }: DashboardProps) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const flatListRef = useRef<FlatList>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -117,7 +118,8 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   const [tempTitle, setTempTitle] = useState('');
   const [tempDesc, setTempDesc] = useState('');
   const [tempTag, setTempTag] = useState('');
-  const [tempDateString, setTempDateString] = useState(''); 
+  const [tempDate, setTempDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false); 
   const [recurrence, setRecurrence] = useState<'none'|'daily'|'weekly'|'monthly'>('none');
 
   const [selectedGoalId, setSelectedGoalId] = useState<string>('');
@@ -214,37 +216,66 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   };
 
   const startCreateItem = (type: 'task' | 'goal') => {
-    setTargetType(type); setEditingItem(null); 
-    setTempTitle(''); setTempDesc(''); setTempTag(''); setSelectedGoalId(''); 
-    setTempDateString(''); setRecurrence('none'); 
-    setIsDropdownOpen(false); setSelectorVisible(false); setFormVisible(true);
+    setTargetType(type); 
+    setEditingItem(null); 
+    setTempTitle(''); 
+    setTempDesc(''); 
+    setTempTag(''); 
+    setSelectedGoalId(''); 
+    // Actualizado: Ahora usamos setTempDate(null)
+    setTempDate(null); 
+    setRecurrence('none'); 
+    setIsDropdownOpen(false); 
+    setSelectorVisible(false); 
+    setFormVisible(true);
   };
 
   const startEditItem = (item: Task) => {
-    setTargetType(item.type); setEditingItem(item); 
-    setTempTitle(item.title); setTempDesc(item.description || ''); setTempTag(item.tag); 
+    setTargetType(item.type); 
+    setEditingItem(item); 
+    setTempTitle(item.title); 
+    setTempDesc(item.description || ''); 
+    setTempTag(item.tag); 
     setSelectedGoalId(item.linkedGoalId || '');
-    setTempDateString(item.due_date ? item.due_date.split('T')[0] : '');
+    
+    // Solo existe esta versión ahora:
+    if (item.due_date) {
+      setTempDate(new Date(item.due_date.split('T')[0] + 'T12:00:00'));
+    } else {
+      setTempDate(null);
+    }
+    
     setRecurrence('none'); 
-    setIsDropdownOpen(false); setFormVisible(true);
+    setIsDropdownOpen(false); 
+    setFormVisible(true);
   };
 
   const saveItem = async () => {
     if (!tempTitle.trim()) return;
     if (columns.length === 0) { alert("Crea una columna."); return; }
-    setFormVisible(false); setIsLoading(true);
+    
+    setFormVisible(false); 
+    setIsLoading(true);
+    
     try {
       const goalIdToSend = selectedGoalId || null;
+      
+      // ACTUALIZADO: Usamos el estado tempDate (objeto Date)
       let dateToSend = null;
-      if (tempDateString) {
-        const d = new Date(tempDateString);
-        if (!isNaN(d.getTime())) dateToSend = d.toISOString();
+      if (tempDate) {
+        // Al ser un objeto Date, toISOString() ya maneja la conversión. 
+        // Como en startEditItem/DateTimePicker forzamos las 12:00 PM, 
+        // esto evitará el error del "día anterior".
+        dateToSend = tempDate.toISOString();
       }
 
       if (editingItem) {
         await api.updateItem(editingItem.id, {
-          title: tempTitle, description: tempDesc, tag: tempTag || (targetType === 'goal' ? '' : 'GRAL'), 
-          linked_goal_id: goalIdToSend, due_date: dateToSend 
+          title: tempTitle, 
+          description: tempDesc, 
+          tag: tempTag || (targetType === 'goal' ? '' : 'GRAL'), 
+          linked_goal_id: goalIdToSend, 
+          due_date: dateToSend 
         });
       } else {
         if (recurrence !== 'none') {
@@ -298,6 +329,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
 
             if (targetType === 'goal') setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 500);
 
+            // ACTUALIZADO: Usamos tempDate
             if (dateToSend && tempTitle) {
                 const targetDate = new Date(dateToSend);
                 targetDate.setHours(9, 0, 0, 0);
@@ -306,7 +338,11 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
         }
       }
       await loadData();
-    } catch (e) { console.error(e); alert("Error guardando."); setIsLoading(false); }
+    } catch (e) { 
+      console.error(e); 
+      alert("Error guardando."); 
+      setIsLoading(false); 
+    }
   };
 
   const deleteItem = async (id: string) => {
@@ -404,7 +440,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
     // @ts-ignore
     <Wrapper {...wrapperProps}>
       {backgroundUrl && <View style={styles.overlay} />}
-      <SafeAreaView style={{flex: 1}}>
+      <SafeAreaView style={{flex: 1, overflow: 'hidden'}}>
         <StatusBar barStyle="light-content" />
         
         <View style={styles.topBar}>
@@ -450,6 +486,8 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
         </View>
 
         <FlatList
+          style={{ flex: 1 }}
+          contentContainerStyle={{ height: '100%' }}
           ref={flatListRef} data={finalColumns} horizontal pagingEnabled showsHorizontalScrollIndicator={false}
           keyExtractor={(item) => item.id} onViewableItemsChanged={onViewableItemsChanged} viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
           getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
@@ -458,7 +496,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                 ? filteredTasks.filter(t => t.type === 'goal') 
                 : filteredTasks.filter(t => t.columnId === item.id && t.type === 'task');
             return (
-              <View style={[styles.columnContainer, { width: width }]}>
+              <View style={[styles.columnContainer, { width: width, height: Platform.OS === 'web' ? height - 180 : '100%' }]}>
                 <View style={styles.columnHeader}>
                     <TouchableOpacity onPress={() => !item.isGoalColumn && handleEditColumn(item)} disabled={!!item.isGoalColumn} style={{flexDirection:'row', alignItems:'center'}}>
                       <Text style={[styles.columnTitle, item.isGoalColumn && {color: Y2K_COLORS.ACID_GREEN}]}>{item.title}</Text>
@@ -467,8 +505,16 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                     {!item.isGoalColumn && (<TouchableOpacity onPress={() => deleteColumn(item.id)}><MaterialCommunityIcons name="trash-can-outline" size={18} color={Y2K_COLORS.DIM_GRAY} /></TouchableOpacity>)}
                 </View>
                 <View style={[styles.line, item.isGoalColumn && {backgroundColor: Y2K_COLORS.ACID_GREEN}]} />
-                <FlatList data={columnItems} keyExtractor={(t) => t.id} renderItem={renderItemCard} contentContainerStyle={{ paddingBottom: 100 }} ListEmptyComponent={<Text style={styles.emptyText}>[ VACÍO ]</Text>} />
-              </View>
+                <FlatList 
+                  style={{ flex: 1 }} 
+                  data={columnItems} 
+                  keyExtractor={(t) => t.id} 
+                  renderItem={renderItemCard} 
+                  showsVerticalScrollIndicator={true}
+                  contentContainerStyle={{ paddingBottom: 20 }} 
+                  ListEmptyComponent={<Text style={styles.emptyText}>[ VACÍO ]</Text>} 
+                  />              
+                </View>
             );
           }}
         />
@@ -503,12 +549,57 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                       <Text style={styles.label}>ETIQUETA (#):</Text>
                       <TextInput style={styles.input} value={tempTag} onChangeText={setTempTag} placeholder="Ej. URGENTE" placeholderTextColor={Y2K_COLORS.DIM_GRAY} />
                     </View>
+                    
                     <View style={{flex:1}}>
-                      <Text style={styles.label}>VENCE (AAAA-MM-DD):</Text>
-                      <TextInput style={styles.input} value={tempDateString} onChangeText={setTempDateString} placeholder="2025-12-31" placeholderTextColor={Y2K_COLORS.DIM_GRAY} />
+                      <Text style={styles.label}>VENCE EL DÍA:</Text>
+                      
+                      {/* LÓGICA ÚNICA PARA WEB Y MÓVIL */}
+                      {Platform.OS === 'web' ? (
+                        <input 
+                          type="date" 
+                          style={{
+                            marginTop: 5, padding: 8, backgroundColor: Y2K_COLORS.DARK_GRAY, 
+                            color: 'white', border: `1px solid ${Y2K_COLORS.GRID_LINE}`, 
+                            width: '100%', fontFamily: 'monospace', outline: 'none'
+                          }} 
+                          value={tempDate ? tempDate.toISOString().split('T')[0] : ''} 
+                          onChange={(e) => {
+                            if (e.target.value) setTempDate(new Date(e.target.value + 'T12:00:00'));
+                            else setTempDate(null);
+                          }} 
+                        />
+                      ) : (
+                        <TouchableOpacity 
+                          style={[styles.input, {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}]} 
+                          onPress={() => setShowDatePicker(true)}
+                        >
+                          <Text style={{color: tempDate ? 'white' : Y2K_COLORS.DIM_GRAY}}>
+                            {tempDate ? format(tempDate, 'yyyy-MM-dd') : 'Seleccionar...'}
+                          </Text>
+                          <MaterialCommunityIcons name="calendar" size={18} color={Y2K_COLORS.ACID_GREEN} />
+                        </TouchableOpacity>
+                      )}
+
+                      {/* DATE PICKER NATIVO (Solo para móvil) */}
+                      {Platform.OS !== 'web' && showDatePicker && (
+                        <DateTimePicker
+                          value={tempDate || new Date()}
+                          mode="date"
+                          display="default"
+                          themeVariant="dark"
+                          onChange={(event, selectedDate) => {
+                            setShowDatePicker(false);
+                            if (selectedDate) {
+                              const localDate = new Date(selectedDate);
+                              localDate.setHours(12, 0, 0, 0);
+                              setTempDate(localDate);
+                            }
+                          }}
+                        />
+                      )}
                     </View>
                   </View>
-                  {Platform.OS === 'web' && (<input type="date" style={{marginTop: 5, padding: 8, backgroundColor: '#333', color: 'white', border: 'none', width: '100%'}} value={tempDateString} onChange={(e) => setTempDateString(e.target.value)} />)}
+
                   {!editingItem && (
                     <View style={{marginTop: 15}}>
                       <Text style={styles.label}>REPETIR (GENERAR AUTOMÁTICO):</Text>
@@ -521,6 +612,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                       </View>
                     </View>
                   )}
+
                   {availableGoals.length > 0 && (
                     <View style={{marginTop: 15, zIndex: 10}}>
                       <Text style={styles.label}>VINCULAR A OBJETIVO:</Text>
@@ -593,8 +685,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
 
 const styles = StyleSheet.create({
   headerBtn: { padding: 5 },
-  container: { flex: 1, backgroundColor: '#000000', ...Platform.select({ web: { minHeight: '100vh' as any } }) },
-  bgImage: { flex: 1, width: '100%', height: '100%' },
+  container: { flex: 1, backgroundColor: '#000000', ...Platform.select({ web: { height: '100vh', overflow: 'hidden' as any } }) },  bgImage: { flex: 1, width: '100%', height: '100%', ...Platform.select({ web: { height: '100vh', overflow: 'hidden' as any } }) },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.8)' },
   topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: Y2K_COLORS.GRID_LINE },
   logoLarge: { color: Y2K_COLORS.ACID_GREEN, fontSize: 32, fontWeight: '900', letterSpacing: -2 },
@@ -606,8 +697,7 @@ const styles = StyleSheet.create({
   columnContainer: { paddingHorizontal: 20, flex: 1 },
   columnHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 5 },
   columnTitle: { color: Y2K_COLORS.WHITE, fontSize: 24, fontWeight: '800', fontStyle: 'italic' },
-  line: { flex: 1, height: 2, backgroundColor: Y2K_COLORS.GRID_LINE, marginTop: 5, marginBottom: 15 },
-  emptyText: { color: Y2K_COLORS.DIM_GRAY, textAlign: 'center', marginTop: 30, fontFamily: 'monospace' },
+  line: { width: '100%', height: 2, backgroundColor: Y2K_COLORS.GRID_LINE, marginTop: 5, marginBottom: 15 },  emptyText: { color: Y2K_COLORS.DIM_GRAY, textAlign: 'center', marginTop: 30, fontFamily: 'monospace' },
   card: { backgroundColor: Y2K_COLORS.DARK_GRAY, padding: 15, marginBottom: 12, borderWidth: 1, borderColor: Y2K_COLORS.GRID_LINE, borderLeftWidth: 4, borderLeftColor: Y2K_COLORS.DIM_GRAY },
   cardOverdue: { borderColor: Y2K_COLORS.ERROR, borderLeftColor: Y2K_COLORS.ERROR, backgroundColor: 'rgba(255, 0, 60, 0.05)' },
   cardDone: { opacity: 0.6, borderLeftColor: Y2K_COLORS.ACID_GREEN, backgroundColor: '#111' },
