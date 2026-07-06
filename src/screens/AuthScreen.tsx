@@ -2,11 +2,7 @@ import React, { useState } from 'react';
 import { Text, TextInput, TouchableOpacity, TextStyle, ViewStyle, View, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Y2K_COLORS, GLOBAL_STYLES } from '../theme/colors';
-// 👇 IMPORTANTE: Importamos el cliente de Supabase para inyectarle la sesión
-import { supabase } from '../services/supabase'; 
-
-const API_URL = 'https://smbdvvbijpsmwyaqfjio.supabase.co/auth/v1';
-const API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNtYmR2dmJpanBzbXd5YXFmamlvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMyNDY1NzAsImV4cCI6MjA3ODgyMjU3MH0.9TeTd6hE6YvdpU0NW1codYWNNfF32vPefmlwZnNXmYc';
+import { supabase } from '../services/supabase';
 
 interface AuthProps {
   onLoginSuccess: (user: any) => void;
@@ -34,50 +30,17 @@ const AuthScreen = ({ onLoginSuccess }: AuthProps) => {
 
     setLoading(true);
     try {
-      const endpoint = isRegisterMode ? '/signup' : '/token?grant_type=password';
-      const url = `${API_URL}${endpoint}`;
-
-      // 1. Login Manual (HTTP Puro)
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': API_KEY,
-          'Authorization': `Bearer ${API_KEY}`,
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) throw new Error(data.msg || data.error_description || "Error desconocido");
-
       if (isRegisterMode) {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
         showAlert("VERIFICACIÓN", "Revisa tu correo y confirma la cuenta.");
         setIsRegisterMode(false);
       } else {
-        // 2. SINCRONIZACIÓN CRÍTICA (FIXED)
-        if (data.access_token && data.refresh_token) {
-            // Await explícito: No pasamos de aquí hasta que Supabase diga OK
-            const { error } = await supabase.auth.setSession({
-                access_token: data.access_token,
-                refresh_token: data.refresh_token,
-            });
-            
-            if (error) throw error;
-
-            // Doble chequeo: Preguntar a Supabase si ya tiene el usuario
-            // Esto garantiza que getDashboardData no fallará después
-            const { data: { user } } = await supabase.auth.getUser();
-            
-            if (user) {
-                console.log("Sesión confirmada y lista.");
-                // 3. AHORA SÍ avisamos a la App
-                onLoginSuccess(user); 
-            } else {
-                throw new Error("Error de sincronización de sesión.");
-            }
-        }
+        // El SDK guarda y refresca la sesión solo; App.tsx se entera
+        // vía onAuthStateChange, así que no hace falta setSession manual.
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        onLoginSuccess(data.user);
       }
 
     } catch (err: any) {
