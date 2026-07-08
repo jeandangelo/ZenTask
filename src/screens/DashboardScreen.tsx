@@ -34,6 +34,9 @@ interface ColumnData {
   isScheduledColumn?: boolean;
 }
 
+// Lista SHOPPING: columna real por defecto, detectada por título (protegida contra borrado)
+const isShoppingTitle = (title: string) => /SHOP|COMPRA/i.test(title || '');
+
 // Tarea programada: pendiente y con fecha posterior a hoy (comparación por día local)
 const isScheduledFuture = (t: Task) => {
   if (!t.due_date || t.status === 'done') return false;
@@ -137,6 +140,8 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   const [editingItem, setEditingItem] = useState<Task | null>(null);
   const [editingColumn, setEditingColumn] = useState<ColumnData | null>(null);
   const [targetType, setTargetType] = useState<'task' | 'goal'>('task');
+  // Modo compra: formulario simple (sin fecha/recurrencia) que va directo a SHOPPING LIST
+  const [shoppingMode, setShoppingMode] = useState(false);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   // Tareas recién tachadas: siguen visibles unos segundos (animación + margen para des-tachar)
   const [recentlyDone, setRecentlyDone] = useState<Set<string>>(new Set());
@@ -144,7 +149,13 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   const loadData = async () => {
     try {
       const data = await api.getDashboardData();
-      setColumns((data.columns || []).map((c: any) => ({ id: c.id, title: c.title, isGoalColumn: c.is_goal_column })));
+      let cols: ColumnData[] = (data.columns || []).map((c: any) => ({ id: c.id, title: c.title, isGoalColumn: c.is_goal_column }));
+      // Lista por defecto SHOPPING LIST: se crea una sola vez si el usuario no la tiene
+      if (!cols.some(c => isShoppingTitle(c.title))) {
+        const { data: shopCol } = await api.createColumn('SHOPPING LIST 🛒', cols.length);
+        if (shopCol) cols = [...cols, { id: shopCol.id, title: shopCol.title, isGoalColumn: false }];
+      }
+      setColumns(cols);
       setTasks((data.items || []).map((i: any) => ({ 
         id: i.id, columnId: i.column_id, type: i.type, title: i.title, 
         description: i.description, status: i.status, tag: i.tag || '', 
@@ -187,13 +198,10 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
 
   useFocusEffect(useCallback(() => { loadData(); }, []));
 
+  // Listas por defecto: siempre visibles, no se pueden borrar ni renombrar
   const finalColumns = [...columns];
-  if (tasks.some(t => t.type === 'task' && isScheduledFuture(t))) {
-    finalColumns.push({ id: 'col_scheduled', title: 'PROGRAMADAS 📅', isScheduledColumn: true });
-  }
-  if (tasks.some(t => t.type === 'goal')) {
-    finalColumns.push({ id: 'col_goals', title: 'MIS OBJETIVOS 🏆', isGoalColumn: true });
-  }
+  finalColumns.push({ id: 'col_scheduled', title: 'PROGRAMADAS 📅', isScheduledColumn: true });
+  finalColumns.push({ id: 'col_goals', title: 'MIS OBJETIVOS 🏆', isGoalColumn: true });
   const availableGoals = tasks.filter(t => t.type === 'goal');
 
   const filteredTasks = tasks.filter(t => {
@@ -225,13 +233,20 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   };
   const deleteColumn = async (id: string) => {
      if (columns.length <= 1) return;
+     const col = columns.find(c => c.id === id);
+     if (col && isShoppingTitle(col.title)) {
+       const msg = "SHOPPING LIST es una lista por defecto y no se puede borrar.";
+       if (Platform.OS === 'web') alert(msg); else Alert.alert("Lista protegida", msg);
+       return;
+     }
      const doDelete = async () => { setIsLoading(true); await api.deleteColumn(id); await loadData(); if (activeIndex > 0) scrollToColumn(activeIndex - 1); };
      if (Platform.OS === 'web') { if (confirm("¿Borrar?")) doDelete(); } else { Alert.alert("Confirmar", "¿Borrar columna?", [{ text: "Cancelar" }, { text: "Sí", onPress: doDelete, style: "destructive" }]); }
   };
 
-  const startCreateItem = (type: 'task' | 'goal') => {
-    setTargetType(type); 
-    setEditingItem(null); 
+  const startCreateItem = (type: 'task' | 'goal', shopping = false) => {
+    setTargetType(type);
+    setShoppingMode(shopping);
+    setEditingItem(null);
     setTempTitle(''); 
     setTempDesc(''); 
     setTempTag(''); 
@@ -245,8 +260,11 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   };
 
   const startEditItem = (item: Task) => {
-    setTargetType(item.type); 
-    setEditingItem(item); 
+    setTargetType(item.type);
+    // Si el ítem vive en la SHOPPING LIST, se edita con el formulario simple de compra
+    const itemCol = columns.find(c => c.id === item.columnId);
+    setShoppingMode(!!itemCol && isShoppingTitle(itemCol.title));
+    setEditingItem(item);
     setTempTitle(item.title); 
     setTempDesc(item.description || ''); 
     setTempTag(item.tag); 
@@ -315,7 +333,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
              let targetColId = columns[0].id;
              if (targetType !== 'goal') {
                  const currentCol = finalColumns[activeIndex];
-                 targetColId = (currentCol && !currentCol.isGoalColumn) ? currentCol.id : columns[0].id;
+                 targetColId = (currentCol && !currentCol.isGoalColumn && !currentCol.isScheduledColumn) ? currentCol.id : columns[0].id;
              }
              await api.createItem({
                 title: tempTitle, description: tempDesc, type: targetType, column_id: targetColId,
@@ -330,12 +348,17 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
           }
         } else {
             let targetColId = "";
-            if (targetType === 'goal') { targetColId = columns[0].id; } 
-            else { const currentCol = finalColumns[activeIndex]; targetColId = (currentCol && !currentCol.isGoalColumn) ? currentCol.id : columns[0].id; }
-            
+            if (shoppingMode) {
+                // Las compras van SIEMPRE a la SHOPPING LIST, sin importar en qué lista estés
+                const shopCol = columns.find(c => isShoppingTitle(c.title));
+                targetColId = shopCol ? shopCol.id : columns[0].id;
+            }
+            else if (targetType === 'goal') { targetColId = columns[0].id; }
+            else { const currentCol = finalColumns[activeIndex]; targetColId = (currentCol && !currentCol.isGoalColumn && !currentCol.isScheduledColumn) ? currentCol.id : columns[0].id; }
+
             await api.createItem({
               title: tempTitle, description: tempDesc, type: targetType, column_id: targetColId,
-              tag: tempTag || (targetType === 'goal' ? '' : 'TAREA'),
+              tag: tempTag || (shoppingMode ? 'COMPRA' : targetType === 'goal' ? '' : 'TAREA'),
               linked_goal_id: targetType === 'goal' ? null : goalIdToSend,
               due_date: dateToSend,
               is_template: false, recurrence: 'none' 
@@ -561,6 +584,8 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
             <View style={styles.selectorBox}>
               <TouchableOpacity style={styles.selectorOption} onPress={() => startCreateItem('task')}><MaterialCommunityIcons name="checkbox-blank-circle-outline" size={24} color={Y2K_COLORS.WHITE} /><Text style={styles.selectorText}>NUEVA TAREA</Text></TouchableOpacity>
               <View style={{height: 1, backgroundColor: Y2K_COLORS.GRID_LINE, width: '100%'}} />
+              <TouchableOpacity style={styles.selectorOption} onPress={() => startCreateItem('task', true)}><MaterialCommunityIcons name="cart-outline" size={24} color={Y2K_COLORS.WHITE} /><Text style={styles.selectorText}>NUEVA COMPRA</Text></TouchableOpacity>
+              <View style={{height: 1, backgroundColor: Y2K_COLORS.GRID_LINE, width: '100%'}} />
               <TouchableOpacity style={styles.selectorOption} onPress={() => startCreateItem('goal')}><MaterialCommunityIcons name="trophy-outline" size={24} color={Y2K_COLORS.ACID_GREEN} /><Text style={[styles.selectorText, {color: Y2K_COLORS.ACID_GREEN}]}>NUEVO OBJETIVO</Text></TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -569,12 +594,12 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
         <Modal transparent visible={formVisible} animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.formCard}>
-              <Text style={styles.formTitle}>{editingItem ? 'EDITAR' : 'NUEVA'} {targetType === 'goal' ? 'OBJETIVO 🏆' : 'TAREA'}</Text>
+              <Text style={styles.formTitle}>{editingItem ? 'EDITAR' : 'NUEVA'} {shoppingMode ? 'COMPRA 🛒' : targetType === 'goal' ? 'OBJETIVO 🏆' : 'TAREA'}</Text>
               <Text style={styles.label}>DESCRIPCIÓN:</Text>
               <TextInput style={styles.input} value={tempTitle} onChangeText={setTempTitle} placeholder="Escribir..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} autoFocus />
               <Text style={styles.label}>COMENTARIOS / DETALLES:</Text>
               <TextInput style={[styles.input, {height: 60}]} value={tempDesc} onChangeText={setTempDesc} placeholder="Detalles extra..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} multiline />
-              {targetType === 'task' && (
+              {targetType === 'task' && !shoppingMode && (
                 <>
                   <View style={{flexDirection:'row', justifyContent:'space-between'}}>
                     <View style={{flex:1, marginRight:10}}>
