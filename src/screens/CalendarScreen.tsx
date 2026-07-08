@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
-import { format, parseISO, isSameDay } from 'date-fns'; // Usamos date-fns para comparar fechas reales
+import { format, parseISO, isSameDay, addDays } from 'date-fns'; // Usamos date-fns para comparar fechas reales
 import { es } from 'date-fns/locale';
 import { Y2K_COLORS, GLOBAL_STYLES } from '../theme/colors';
 import { api } from '../services/api';
@@ -19,8 +19,20 @@ LocaleConfig.locales['es'] = {
 };
 LocaleConfig.defaultLocale = 'es';
 
+// ¿La rutina (plantilla) corresponde a esta fecha?
+const routineOccursOn = (routine: any, date: Date) => {
+  if (routine.recurrence === 'daily') return true;
+  if (routine.recurrence === 'weekly') return date.getDay() === routine.recurrence_day;
+  if (routine.recurrence === 'monthly') return date.getDate() === routine.recurrence_day;
+  return false;
+};
+
+// Días hacia adelante que proyectamos las rutinas en el calendario
+const PROJECTION_DAYS = 90;
+
 export default function CalendarScreen({ navigation }: any) {
   const [tasks, setTasks] = useState<any[]>([]);
+  const [routines, setRoutines] = useState<any[]>([]);
   const [markedDates, setMarkedDates] = useState<any>({});
   // Inicializamos con la fecha local de hoy (YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -37,8 +49,10 @@ export default function CalendarScreen({ navigation }: any) {
     try {
       const data = await api.getDashboardData();
       const allTasks = data.items || [];
+      const allRoutines = await api.getRoutines();
       setTasks(allTasks);
-      processMarkers(allTasks);
+      setRoutines(allRoutines);
+      processMarkers(allTasks, allRoutines);
     } catch (error) {
       console.error(error);
     } finally {
@@ -47,23 +61,33 @@ export default function CalendarScreen({ navigation }: any) {
   };
 
   // --- LÓGICA DE MARCADORES MEJORADA ---
-  const processMarkers = (items: any[]) => {
+  const processMarkers = (items: any[], routineList: any[]) => {
     const marks: any = {};
-    
+
     items.forEach(task => {
       if (task.due_date && task.status !== 'done') {
         // CORRECCIÓN: Usamos la zona horaria local para decidir dónde va el punto
         const localDate = parseISO(task.due_date);
         const dateKey = format(localDate, 'yyyy-MM-dd');
-        
-        marks[dateKey] = { 
-          marked: true, 
+
+        marks[dateKey] = {
+          marked: true,
           dotColor: Y2K_COLORS.ACID_GREEN,
-          activeOpacity: 0 
+          activeOpacity: 0
         };
       }
     });
-    
+
+    // PROYECCIÓN DE RUTINAS: punto verde en los próximos días donde toca cada rutina
+    const today = new Date();
+    for (let i = 0; i <= PROJECTION_DAYS; i++) {
+      const day = addDays(today, i);
+      if (routineList.some(r => routineOccursOn(r, day))) {
+        const dateKey = format(day, 'yyyy-MM-dd');
+        marks[dateKey] = { ...(marks[dateKey] || {}), marked: true, dotColor: Y2K_COLORS.ACID_GREEN, activeOpacity: 0 };
+      }
+    }
+
     // Aseguramos que el día seleccionado se mantenga marcado visualmente
     // Usamos el estado actual de selectedDate
     const currentSelected = selectedDate; // Usamos la variable de estado o una referencia
@@ -80,12 +104,31 @@ export default function CalendarScreen({ navigation }: any) {
   };
 
   // --- FILTRADO INTELIGENTE ---
-  const tasksForDay = tasks.filter(t => {
+  // Tareas reales del día: su estado (tachada o no) pertenece SOLO a este día
+  const realTasksForDay = tasks.filter(t => {
     if (!t.due_date) return false;
     // Comparamos la fecha de la tarea con la fecha seleccionada usando date-fns
     // Esto maneja mejor las zonas horarias que una comparación de strings simple
     return isSameDay(parseISO(t.due_date), parseISO(selectedDate));
   });
+
+  // Rutinas proyectadas: solo de hoy en adelante, siempre PENDIENTES (jamás tachadas),
+  // y sin duplicar una tarea real ya generada ese día con el mismo título
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const projectedForDay = selectedDate >= todayStr
+    ? routines
+        .filter(r => routineOccursOn(r, parseISO(selectedDate)))
+        .filter(r => !realTasksForDay.some(t => t.title === r.title))
+        .map(r => ({
+          id: `routine-${r.id}-${selectedDate}`,
+          title: r.title,
+          tag: r.tag || 'RUTINA',
+          status: 'pending',
+          projected: true
+        }))
+    : [];
+
+  const tasksForDay = [...realTasksForDay, ...projectedForDay];
 
   const onDayPress = (day: any) => {
     const newDate = day.dateString;
@@ -124,6 +167,7 @@ export default function CalendarScreen({ navigation }: any) {
         {/* Mostramos el Tag y también la hora si existe */}
         <Text style={styles.taskTag}>#{item.tag}</Text>
       </View>
+      {item.projected && <MaterialCommunityIcons name="repeat" size={16} color={Y2K_COLORS.DIM_GRAY} />}
     </View>
   );
 

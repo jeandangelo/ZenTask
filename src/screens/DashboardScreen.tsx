@@ -31,7 +31,16 @@ interface ColumnData {
   id: string;
   title: string;
   isGoalColumn?: boolean;
+  isScheduledColumn?: boolean;
 }
+
+// Tarea programada: pendiente y con fecha posterior a hoy (comparación por día local)
+const isScheduledFuture = (t: Task) => {
+  if (!t.due_date || t.status === 'done') return false;
+  const d = parseISO(t.due_date);
+  if (!isValid(d)) return false;
+  return format(d, 'yyyy-MM-dd') > format(new Date(), 'yyyy-MM-dd');
+};
 
 interface DashboardProps {
   navigation: any;
@@ -129,6 +138,8 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   const [editingColumn, setEditingColumn] = useState<ColumnData | null>(null);
   const [targetType, setTargetType] = useState<'task' | 'goal'>('task');
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+  // Tareas recién tachadas: siguen visibles unos segundos (animación + margen para des-tachar)
+  const [recentlyDone, setRecentlyDone] = useState<Set<string>>(new Set());
 
   const loadData = async () => {
     try {
@@ -177,6 +188,9 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   useFocusEffect(useCallback(() => { loadData(); }, []));
 
   const finalColumns = [...columns];
+  if (tasks.some(t => t.type === 'task' && isScheduledFuture(t))) {
+    finalColumns.push({ id: 'col_scheduled', title: 'PROGRAMADAS 📅', isScheduledColumn: true });
+  }
   if (tasks.some(t => t.type === 'goal')) {
     finalColumns.push({ id: 'col_goals', title: 'MIS OBJETIVOS 🏆', isGoalColumn: true });
   }
@@ -361,9 +375,19 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
       // LLAMADA SEGURA AL SERVIDOR
       await api.toggleTaskStatus(item.id, newStatus);
 
-      if (newStatus === 'done') { 
-          triggerXpAnimation(); 
-          
+      if (newStatus === 'done') {
+          triggerXpAnimation();
+
+          // La tarea queda visible 2 segundos y luego desaparece del tablero
+          setRecentlyDone(prev => new Set(prev).add(item.id));
+          setTimeout(() => {
+            setRecentlyDone(prev => {
+              const next = new Set(prev);
+              next.delete(item.id);
+              return next;
+            });
+          }, 2000);
+
           // VERIFICAR NIVEL
           const updatedProfile = await api.getProfile();
           if (updatedProfile && updatedProfile.level > currentLevel) {
@@ -415,10 +439,10 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
           <TouchableOpacity onPress={() => deleteItem(item.id)} style={{ padding: 5 }}><MaterialCommunityIcons name="dots-horizontal" size={24} color={Y2K_COLORS.LIGHT_GRAY} /></TouchableOpacity>
         </View>
         <View style={styles.cardBody}>
-          <TouchableOpacity onPress={() => toggleStatus(item)} disabled={isProcessing} style={styles.checkboxContainer}>
-            {isProcessing ? <ActivityIndicator size="small" color={Y2K_COLORS.ACID_GREEN} /> : 
-               <View style={[styles.checkbox, item.status === 'done' && { backgroundColor: Y2K_COLORS.ACID_GREEN, borderColor: Y2K_COLORS.ACID_GREEN }, item.type === 'goal' && { borderRadius: 4 }, isOverdue && item.status !== 'done' && { borderColor: Y2K_COLORS.ERROR }]}>
-                  {item.status === 'done' && <MaterialCommunityIcons name="check" size={14} color="black" />}
+          <TouchableOpacity onPress={() => toggleStatus(item)} disabled={isProcessing} style={styles.checkboxContainer} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            {isProcessing ? <ActivityIndicator size="small" color={Y2K_COLORS.ACID_GREEN} /> :
+               <View style={[styles.checkbox, item.status === 'done' && { backgroundColor: Y2K_COLORS.ACID_GREEN, borderColor: Y2K_COLORS.ACID_GREEN }, item.type === 'goal' && { borderRadius: 6 }, isOverdue && item.status !== 'done' && { borderColor: Y2K_COLORS.ERROR }]}>
+                  {item.status === 'done' && <MaterialCommunityIcons name="check" size={20} color="black" />}
                </View>
             }
           </TouchableOpacity>
@@ -492,17 +516,25 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
           keyExtractor={(item) => item.id} onViewableItemsChanged={onViewableItemsChanged} viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
           getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
           renderItem={({ item }) => {
-            const columnItems = item.isGoalColumn 
-                ? filteredTasks.filter(t => t.type === 'goal') 
-                : filteredTasks.filter(t => t.columnId === item.id && t.type === 'task');
+            const columnItems = item.isGoalColumn
+                ? filteredTasks.filter(t => t.type === 'goal')
+                : item.isScheduledColumn
+                ? filteredTasks
+                    .filter(t => t.type === 'task' && isScheduledFuture(t))
+                    .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''))
+                : filteredTasks.filter(t =>
+                    t.columnId === item.id && t.type === 'task' &&
+                    !isScheduledFuture(t) &&
+                    (t.status !== 'done' || recentlyDone.has(t.id))
+                  );
             return (
               <View style={[styles.columnContainer, { width: width, height: Platform.OS === 'web' ? height - 180 : '100%' }]}>
                 <View style={styles.columnHeader}>
-                    <TouchableOpacity onPress={() => !item.isGoalColumn && handleEditColumn(item)} disabled={!!item.isGoalColumn} style={{flexDirection:'row', alignItems:'center'}}>
+                    <TouchableOpacity onPress={() => !item.isGoalColumn && !item.isScheduledColumn && handleEditColumn(item)} disabled={!!item.isGoalColumn || !!item.isScheduledColumn} style={{flexDirection:'row', alignItems:'center'}}>
                       <Text style={[styles.columnTitle, item.isGoalColumn && {color: Y2K_COLORS.ACID_GREEN}]}>{item.title}</Text>
-                      {!item.isGoalColumn && <MaterialCommunityIcons name="pencil" size={14} color={Y2K_COLORS.DIM_GRAY} style={{marginLeft: 8}} />}
+                      {!item.isGoalColumn && !item.isScheduledColumn && <MaterialCommunityIcons name="pencil" size={14} color={Y2K_COLORS.DIM_GRAY} style={{marginLeft: 8}} />}
                     </TouchableOpacity>
-                    {!item.isGoalColumn && (<TouchableOpacity onPress={() => deleteColumn(item.id)}><MaterialCommunityIcons name="trash-can-outline" size={18} color={Y2K_COLORS.DIM_GRAY} /></TouchableOpacity>)}
+                    {!item.isGoalColumn && !item.isScheduledColumn && (<TouchableOpacity onPress={() => deleteColumn(item.id)}><MaterialCommunityIcons name="trash-can-outline" size={18} color={Y2K_COLORS.DIM_GRAY} /></TouchableOpacity>)}
                 </View>
                 <View style={[styles.line, item.isGoalColumn && {backgroundColor: Y2K_COLORS.ACID_GREEN}]} />
                 <FlatList 
@@ -710,7 +742,7 @@ const styles = StyleSheet.create({
   cardTitle: { color: Y2K_COLORS.WHITE, fontSize: 16, fontWeight: '600', flex: 1 },
   cardDescription: { color: Y2K_COLORS.DIM_GRAY, fontSize: 12, marginTop: 4, fontFamily: 'monospace' },
   checkboxContainer: { marginRight: 12 },
-  checkbox: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: Y2K_COLORS.DIM_GRAY, justifyContent: 'center', alignItems: 'center' },
+  checkbox: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: Y2K_COLORS.DIM_GRAY, justifyContent: 'center', alignItems: 'center' },
   fab: { position: 'absolute', bottom: 30, right: 20, width: 65, height: 65, borderRadius: 35, backgroundColor: Y2K_COLORS.ACID_GREEN, justifyContent: 'center', alignItems: 'center', ...Platform.select({ web: { boxShadow: '0px 4px 10px rgba(0,0,0,0.5)' }, default: { elevation: 5 } }) },
   fabText: { fontSize: 35, fontWeight: '400', color: '#000', marginTop: -3 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
