@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { format, parseISO, isValid } from 'date-fns';
 import { Y2K_COLORS, GLOBAL_STYLES } from '../theme/colors';
 import { supabase } from '../services/supabase';
 import { api } from '../services/api';
@@ -39,12 +40,31 @@ export default function ProfileScreen({ navigation }: any) {
 
       // CALCULAR ESTADÍSTICAS EN TIEMPO REAL
       // (En una app masiva esto se haría en el servidor, pero para MVP está bien aquí)
-      const { data: items } = await supabase.from('items').select('status').eq('is_template', false);
+      // EFICIENCIA JUSTA: solo cuentan las tareas EXIGIBLES.
+      // Quedan fuera: objetivos, compras (shopping list) y tareas programadas
+      // a futuro — hacer una tarea el día que la estipulaste no baja la eficacia.
+      const { data: items } = await supabase.from('items').select('status, due_date, tag, type, column_id').eq('is_template', false);
+      const { data: cols } = await supabase.from('columns').select('id, title');
       if (items) {
-        const total = items.length;
-        const done = items.filter(i => i.status === 'done').length;
-        const pending = total - done;
-        const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+        const shoppingColIds = new Set(
+          (cols || []).filter((c: any) => /SHOP|COMPRA/i.test(c.title || '')).map((c: any) => c.id)
+        );
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+
+        const relevant = items.filter((i: any) =>
+          i.type === 'task' &&
+          !shoppingColIds.has(i.column_id) &&
+          (i.tag || '').toUpperCase() !== 'COMPRA'
+        );
+        const done = relevant.filter((i: any) => i.status === 'done').length;
+        const pending = relevant.filter((i: any) => {
+          if (i.status === 'done') return false;
+          if (!i.due_date) return true; // sin fecha = exigible hoy
+          const d = parseISO(i.due_date);
+          return !isValid(d) || format(d, 'yyyy-MM-dd') <= todayStr; // las futuras no cuentan
+        }).length;
+        const total = done + pending;
+        const percent = total > 0 ? Math.round((done / total) * 100) : 100; // sin pendientes exigibles = al día
         setStats({ total, done, pending, percent });
       }
 
