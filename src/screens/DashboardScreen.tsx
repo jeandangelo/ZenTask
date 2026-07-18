@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
   StatusBar, Platform, useWindowDimensions,
   Modal, TextInput, Alert, ViewToken, ScrollView, ActivityIndicator,
-  ImageBackground, Image, Animated, Easing
+  ImageBackground, Image, Animated, Easing, ViewStyle, TextStyle
 } from 'react-native';
 // SafeAreaView de safe-area-context, NO la de react-native: en la PWA con
 // viewport-fit=cover es la única que respeta notch y home indicator del
@@ -744,9 +744,17 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   );
 }
 
+// Solo web: fija el alto al viewport y evita el scroll del body en la PWA.
+// '100vh' es CSS válido pero no existe en los tipos de RN, de ahí el cast.
+const webViewportFill = Platform.select({
+  web: { height: '100vh', overflow: 'hidden' } as unknown as ViewStyle,
+  default: {} as ViewStyle,
+});
+
 const styles = StyleSheet.create({
   headerBtn: { padding: 5 },
-  container: { flex: 1, backgroundColor: '#000000', ...Platform.select({ web: { height: '100vh', overflow: 'hidden' as any } }) },  bgImage: { flex: 1, width: '100%', height: '100%', ...Platform.select({ web: { height: '100vh', overflow: 'hidden' as any } }) },
+  container: { flex: 1, backgroundColor: '#000000', ...webViewportFill },
+  bgImage: { flex: 1, width: '100%', height: '100%', ...webViewportFill },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.8)' },
   topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: Y2K_COLORS.GRID_LINE },
   logoLarge: { color: Y2K_COLORS.ACID_GREEN, fontSize: 32, fontWeight: '900', letterSpacing: -2 },
@@ -810,7 +818,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1, color: 'white', fontSize: 14, fontFamily: 'monospace',
-    // @ts-ignore
-    outlineStyle: 'none' 
+    // Solo web: quita el contorno de foco del navegador ('none' no existe en los tipos de RN).
+    ...Platform.select({ web: { outlineStyle: 'none' } as unknown as TextStyle }),
   }
 });
