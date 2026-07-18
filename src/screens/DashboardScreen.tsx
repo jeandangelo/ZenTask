@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-  View, Text, StyleSheet, TouchableOpacity, FlatList, 
-  StatusBar, SafeAreaView, Platform, useWindowDimensions, 
+import {
+  View, Text, StyleSheet, TouchableOpacity, FlatList,
+  StatusBar, Platform, useWindowDimensions,
   Modal, TextInput, Alert, ViewToken, ScrollView, ActivityIndicator,
   ImageBackground, Image, Animated, Easing
 } from 'react-native';
+// SafeAreaView de safe-area-context, NO la de react-native: en la PWA con
+// viewport-fit=cover es la única que respeta notch y home indicator del
+// iPhone (con la de react-native la última tarea quedaba bajo el borde).
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format, isPast, isToday, parseISO, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
