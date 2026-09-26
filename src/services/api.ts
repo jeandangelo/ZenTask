@@ -1,6 +1,12 @@
+import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import { localDayKey } from '../domain/dates';
+import { dayKeyOf, localDayKey } from '../domain/dates';
+import { isShoppingTitle } from '../domain/lists';
 import { routineOccursOn } from '../domain/routines';
+
+// Única capa que habla con Supabase: las pantallas no hacen queries directas.
+// La seguridad real la dan las políticas RLS; filtrar por user_id aquí es
+// una segunda barrera y además ayuda al planificador de la base.
 
 // --- TIPOS ---
 export interface DbColumn {
@@ -26,113 +32,139 @@ export interface DbItem {
   last_generated?: string | null;
 }
 
+export interface DbProfile {
+  id: string;
+  username?: string | null;
+  bio?: string | null;
+  avatar_url?: string | null;
+  background_url?: string | null;
+  xp_points?: number | null;
+  level?: number | null;
+}
+
+export interface EfficiencyStats {
+  total: number;
+  done: number;
+  pending: number;
+  percent: number;
+}
+
+// Mensaje único para "no hay sesión": las pantallas lo detectan con
+// isAuthError() para volver al login.
+const AUTH_ERROR = 'Usuario no autenticado';
+
+export const isAuthError = (e: unknown): boolean => {
+  const msg = e instanceof Error ? e.message : String(e ?? '');
+  return msg === AUTH_ERROR || msg.includes('Auth session missing');
+};
+
+// Id del usuario desde la sesión guardada en el dispositivo, sin viaje de
+// red (getUser() consulta al servidor en cada llamada).
+const requireUserId = async (): Promise<string> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) throw new Error(AUTH_ERROR);
+  return session.user.id;
+};
+
+// Crea hoy las tareas de las rutinas que corresponden y aún no se generaron.
+// Devuelve true si insertó algo (para recargar la lista de ítems).
+const generateRoutineTasks = async (userId: string, templates: DbItem[], columns: DbColumn[]): Promise<boolean> => {
+  const firstColumn = columns[0];
+  if (!firstColumn || templates.length === 0) return false;
+
+  const today = new Date();
+  const todayStr = localDayKey(today);
+  const due = templates.filter(t => t.last_generated !== todayStr && routineOccursOn(t, today));
+  if (due.length === 0) return false;
+
+  const { error: insertError } = await supabase.from('items').insert(due.map(t => ({
+    user_id: userId,
+    column_id: firstColumn.id,
+    type: t.type,
+    title: t.title,
+    description: t.description,
+    tag: t.tag,
+    linked_goal_id: t.linked_goal_id,
+    status: 'pending',
+    is_template: false,
+    recurrence: 'none',
+    due_date: today.toISOString(),
+  })));
+  // Si el insert falla NO se marca como generada: se reintenta en la próxima carga.
+  if (insertError) {
+    console.error('Error generando rutinas:', insertError.message);
+    return false;
+  }
+
+  await supabase.from('items').update({ last_generated: todayStr }).in('id', due.map(t => t.id));
+  return true;
+};
+
+const fetchItems = (userId: string) => supabase
+  .from('items')
+  .select('*')
+  .eq('user_id', userId)
+  .eq('is_template', false)
+  .order('due_date', { ascending: true, nullsFirst: false })
+  .order('created_at', { ascending: true });
+
 export const api = {
-  
-  getDashboardData: async () => {
-    // 1. Obtención de sesión segura
-    const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user || (await supabase.auth.getUser()).data.user;
-    if (!user) throw new Error("Usuario no autenticado");
 
-    // 2. Día local (no UTC), ver src/domain/dates.ts
-    const today = new Date();
-    const todayStr = localDayKey(today);
+  // --- SESIÓN ---
+  auth: {
+    signIn: (email: string, password: string) => supabase.auth.signInWithPassword({ email, password }),
+    signUp: (email: string, password: string) => supabase.auth.signUp({ email, password }),
+    signOut: () => supabase.auth.signOut(),
+    getSession: () => supabase.auth.getSession(),
+    onAuthStateChange: (callback: (session: Session | null) => void) =>
+      supabase.auth.onAuthStateChange((_event, session) => callback(session)),
+  },
 
-    // GENERADOR AUTOMÁTICO (Optimizado con Batching)
-    const { data: templates } = await supabase
-      .from('items')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_template', true);
+  // Carga del tablero: columnas, ítems y plantillas van en paralelo
+  // (antes eran 5-7 consultas en serie, cada una esperando a la anterior).
+  getDashboardData: async (): Promise<{ columns: DbColumn[]; items: DbItem[] }> => {
+    const userId = await requireUserId();
 
-    if (templates && templates.length > 0) {
-      const { data: firstColumn } = await supabase
-        .from('columns')
-        .select('id')
-        .eq('user_id', user.id)
-        .order('position', { ascending: true })
-        .limit(1)
-        .maybeSingle();
+    const [templatesRes, columnsRes, itemsRes] = await Promise.all([
+      supabase.from('items').select('*').eq('user_id', userId).eq('is_template', true),
+      supabase.from('columns').select('*').eq('user_id', userId).order('position', { ascending: true }),
+      fetchItems(userId),
+    ]);
+    if (columnsRes.error) throw columnsRes.error;
+    if (itemsRes.error) throw itemsRes.error;
 
-      if (firstColumn) {
-        const itemsToInsert: any[] = [];
-        const templatesToUpdate: string[] = [];
+    let columns = (columnsRes.data || []) as DbColumn[];
+    let items = (itemsRes.data || []) as DbItem[];
 
-        // Evaluación en memoria (Sin llamadas de red)
-        for (const template of templates) {
-          if (template.last_generated === todayStr) continue;
-
-          if (routineOccursOn(template, today)) {
-            console.log(`Cola de generación lista para: ${template.title}`);
-            itemsToInsert.push({
-              user_id: user.id,
-              column_id: firstColumn.id,
-              type: template.type,
-              title: template.title,
-              description: template.description,
-              tag: template.tag,
-              linked_goal_id: template.linked_goal_id,
-              status: 'pending',
-              is_template: false,
-              recurrence: 'none',
-              due_date: new Date().toISOString()
-            });
-            templatesToUpdate.push(template.id);
-          }
-        }
-
-        // Ejecución Batch: 1 petición de inserción y 1 de actualización masiva
-        if (itemsToInsert.length > 0) {
-          await supabase.from('items').insert(itemsToInsert);
-          await supabase.from('items').update({ last_generated: todayStr }).in('id', templatesToUpdate);
-        }
-      }
+    // Usuario nuevo: columnas por defecto
+    if (columns.length === 0) {
+      const { data: newCols } = await supabase.from('columns').insert([
+        { user_id: userId, title: 'HOY [FOCUS]', position: 0 },
+        { user_id: userId, title: 'ESTA SEMANA', position: 1 },
+      ]).select();
+      columns = (newCols || []) as DbColumn[];
     }
 
-    // CARGA NORMAL (Defensiva)
-    let { data: columns, error: colError } = await supabase
-      .from('columns')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('position', { ascending: true });
-      
-    if (colError) throw colError;
-
-    // Creación de columnas por defecto si es usuario nuevo
-    if (!columns || columns.length === 0) {
-      const defaultCols = [
-        { user_id: user.id, title: 'HOY [FOCUS]', position: 0 }, 
-        { user_id: user.id, title: 'ESTA SEMANA', position: 1 }
-      ];
-      const { data: newCols } = await supabase.from('columns').insert(defaultCols).select();
-      columns = newCols;
+    // Solo se recargan los ítems si el generador creó algo (una vez al día)
+    if (await generateRoutineTasks(userId, (templatesRes.data || []) as DbItem[], columns)) {
+      const { data, error } = await fetchItems(userId);
+      if (error) throw error;
+      items = (data || []) as DbItem[];
     }
-
-    const { data: items, error: itemError } = await supabase
-      .from('items')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_template', false)
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: true });
-      
-    if (itemError) throw itemError;
 
     return { columns, items };
   },
 
   // --- CRUD BÁSICO ---
   createColumn: async (title: string, position: number) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Usuario no autenticado");
-    return await supabase.from('columns').insert({ user_id: user.id, title, position }).select().single();
+    const userId = await requireUserId();
+    return await supabase.from('columns').insert({ user_id: userId, title, position }).select().single();
   },
 
   createItem: async (item: Partial<DbItem>) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Usuario no autenticado");
+    const userId = await requireUserId();
     return await supabase.from('items').insert({
-      user_id: user.id,
+      user_id: userId,
       title: item.title,
       description: item.description,
       type: item.type,
@@ -144,7 +176,7 @@ export const api = {
       is_template: item.is_template || false,
       recurrence: item.recurrence || 'none',
       recurrence_day: item.recurrence_day,
-      last_generated: item.last_generated 
+      last_generated: item.last_generated
     }).select().single();
   },
 
@@ -152,11 +184,12 @@ export const api = {
     return await supabase.from('items').update(updates).eq('id', id);
   },
 
-  // 🔥 FUNCIÓN ROBUSTA PARA CHECK/UNCHECK (RPC) 🔥
+  // Tachar/destachar pasa por una función de la base (toggle_task_status)
+  // que además suma o resta XP y recalcula el nivel en el perfil.
   toggleTaskStatus: async (id: string, targetStatus: 'pending' | 'done') => {
-    return await supabase.rpc('toggle_task_status', { 
-      task_id: id, 
-      target_status: targetStatus 
+    return await supabase.rpc('toggle_task_status', {
+      task_id: id,
+      target_status: targetStatus
     });
   },
 
@@ -172,30 +205,54 @@ export const api = {
     return await supabase.from('columns').delete().eq('id', id);
   },
 
-  getProfile: async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-    const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(); 
-    return data;
+  getProfile: async (): Promise<DbProfile | null> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return null;
+    const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+    return data as DbProfile | null;
   },
 
-  updateProfile: async (updates: any) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Usuario no autenticado");
-    return await supabase.from('profiles').update(updates).eq('id', user.id);
+  updateProfile: async (updates: Partial<Omit<DbProfile, 'id'>>) => {
+    const userId = await requireUserId();
+    return await supabase.from('profiles').update(updates).eq('id', userId);
   },
-  
-  getRoutines: async () => {
-    // 🔒 Añadido chequeo de usuario para programación defensiva
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Usuario no autenticado");
-    
+
+  getRoutines: async (): Promise<DbItem[]> => {
+    const userId = await requireUserId();
     const { data } = await supabase
       .from('items')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('is_template', true);
-      
-    return data || [];
-  }
+    return (data || []) as DbItem[];
+  },
+
+  // EFICIENCIA JUSTA: solo cuentan las tareas EXIGIBLES.
+  // Quedan fuera: objetivos, compras (shopping list) y tareas programadas
+  // a futuro — hacer una tarea el día que la estipulaste no baja la eficacia.
+  getEfficiencyStats: async (): Promise<EfficiencyStats> => {
+    const userId = await requireUserId();
+    const [itemsRes, colsRes] = await Promise.all([
+      supabase.from('items').select('status, due_date, tag, type, column_id').eq('user_id', userId).eq('is_template', false),
+      supabase.from('columns').select('id, title').eq('user_id', userId),
+    ]);
+    const items = (itemsRes.data || []) as Pick<DbItem, 'status' | 'due_date' | 'tag' | 'type' | 'column_id'>[];
+    const shoppingColIds = new Set((colsRes.data || []).filter(c => isShoppingTitle(c.title)).map(c => c.id));
+    const todayStr = localDayKey();
+
+    const relevant = items.filter(i =>
+      i.type === 'task' &&
+      !shoppingColIds.has(i.column_id) &&
+      (i.tag || '').toUpperCase() !== 'COMPRA'
+    );
+    const done = relevant.filter(i => i.status === 'done').length;
+    const pending = relevant.filter(i => {
+      if (i.status === 'done') return false;
+      const key = dayKeyOf(i.due_date);
+      return key === null || key <= todayStr; // sin fecha = exigible hoy; las futuras no cuentan
+    }).length;
+    const total = done + pending;
+    const percent = total > 0 ? Math.round((done / total) * 100) : 100; // sin pendientes exigibles = al día
+    return { total, done, pending, percent };
+  },
 };

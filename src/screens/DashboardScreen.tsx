@@ -13,7 +13,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format, isPast, isToday, parseISO, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Y2K_COLORS } from '../theme/colors';
-import { api } from '../services/api';
+import { api, DbItem, isAuthError } from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
 import { notificationService } from '../services/notifications';
 import { confirmAction, notify } from '../services/dialogs';
@@ -120,7 +120,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   const [formVisible, setFormVisible] = useState(false);
   const [columnFormVisible, setColumnFormVisible] = useState(false);
   const [routinesVisible, setRoutinesVisible] = useState(false);
-  const [routinesList, setRoutinesList] = useState<any[]>([]);
+  const [routinesList, setRoutinesList] = useState<DbItem[]>([]);
   
   const [showXpAnim, setShowXpAnim] = useState(false);
   const [showLevelUp, setShowLevelUp] = useState(false);
@@ -148,21 +148,21 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
 
   const loadData = async () => {
     try {
-      const data = await api.getDashboardData();
-      let cols: ColumnData[] = (data.columns || []).map((c: any) => ({ id: c.id, title: c.title, isGoalColumn: c.is_goal_column }));
+      // Tablero y perfil en paralelo: no dependen uno del otro
+      const [data, profile] = await Promise.all([api.getDashboardData(), api.getProfile()]);
+      let cols: ColumnData[] = data.columns.map(c => ({ id: c.id, title: c.title, isGoalColumn: c.is_goal_column }));
       // Lista por defecto SHOPPING LIST: se crea una sola vez si el usuario no la tiene
       if (!cols.some(c => isShoppingTitle(c.title))) {
         const { data: shopCol } = await api.createColumn('SHOPPING LIST 🛒', cols.length);
         if (shopCol) cols = [...cols, { id: shopCol.id, title: shopCol.title, isGoalColumn: false }];
       }
       setColumns(cols);
-      setTasks((data.items || []).map((i: any) => ({ 
-        id: i.id, columnId: i.column_id, type: i.type, title: i.title, 
-        description: i.description, status: i.status, tag: i.tag || '', 
-        linkedGoalId: i.linked_goal_id, due_date: i.due_date 
+      setTasks(data.items.map(i => ({
+        id: i.id, columnId: i.column_id, type: i.type, title: i.title,
+        description: i.description, status: i.status, tag: i.tag || '',
+        linkedGoalId: i.linked_goal_id ?? undefined, due_date: i.due_date
       })));
 
-      const profile = await api.getProfile();
       if (profile) {
         const bg = profile.background_url && profile.background_url.trim().length > 5 ? profile.background_url : null;
         const av = profile.avatar_url && profile.avatar_url.trim().length > 5 ? profile.avatar_url : null;
@@ -170,8 +170,11 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
         setAvatarUrl(av);
         setCurrentLevel(profile.level || 1);
       }
-    } catch (e: any) {
-      if (e.message === "No usuario" || e.message?.includes("Auth session missing")) onLogout();
+    } catch (e) {
+      // Antes se comparaba con "No usuario", un mensaje que api.ts nunca
+      // lanzaba: con la sesión vencida el tablero quedaba vacío sin volver al login.
+      if (isAuthError(e)) onLogout();
+      else console.error('Error cargando el tablero:', e);
     } finally {
       setIsLoading(false);
     }
@@ -406,9 +409,9 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
           }, 2000);
 
           // VERIFICAR NIVEL
-          const updatedProfile = await api.getProfile();
-          if (updatedProfile && updatedProfile.level > currentLevel) {
-              setCurrentLevel(updatedProfile.level);
+          const newLevel = (await api.getProfile())?.level ?? 0;
+          if (newLevel > currentLevel) {
+              setCurrentLevel(newLevel);
               setShowLevelUp(true);
           }
       }
