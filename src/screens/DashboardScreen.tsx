@@ -8,7 +8,7 @@ import {
 // SafeAreaView de safe-area-context, NO la de react-native: en la PWA con
 // viewport-fit=cover es la única que respeta notch y home indicator del
 // iPhone (con la de react-native la última tarea quedaba bajo el borde).
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format, isPast, isToday, parseISO, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -111,6 +111,9 @@ const LevelUpModal = ({ visible, level, onClose }: { visible: boolean, level: nu
 
 export default function DashboardScreen({ navigation, onLogout }: DashboardProps) {
   const { width, height } = useWindowDimensions();
+  // Insets reales del sistema (notch / home indicator del iPhone en la PWA).
+  // En un navegador de escritorio son 0, así que ahí nada cambia.
+  const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -554,8 +557,12 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                     !isScheduledFuture(t) &&
                     (t.status !== 'done' || recentlyDone.has(t.id))
                   );
+            // El alto de ventana incluye notch y home indicator, pero el
+            // SafeAreaView ya los descuenta con padding: hay que restarlos
+            // también del alto de la columna o queda más alta que el área
+            // visible y la última tarea muere detrás del borde inferior.
             return (
-              <View style={[styles.columnContainer, { width: width, height: Platform.OS === 'web' ? height - 180 : '100%' }]}>
+              <View style={[styles.columnContainer, { width: width, height: Platform.OS === 'web' ? height - 180 - insets.top - insets.bottom : '100%' }]}>
                 <View style={styles.columnHeader}>
                     <TouchableOpacity onPress={() => !item.isGoalColumn && !item.isScheduledColumn && handleEditColumn(item)} disabled={!!item.isGoalColumn || !!item.isScheduledColumn} style={{flexDirection:'row', alignItems:'center'}}>
                       <Text style={[styles.columnTitle, item.isGoalColumn && {color: Y2K_COLORS.ACID_GREEN}]}>{item.title}</Text>
@@ -564,14 +571,16 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                     {!item.isGoalColumn && !item.isScheduledColumn && (<TouchableOpacity onPress={() => deleteColumn(item.id)}><MaterialCommunityIcons name="trash-can-outline" size={18} color={Y2K_COLORS.DIM_GRAY} /></TouchableOpacity>)}
                 </View>
                 <View style={[styles.line, item.isGoalColumn && {backgroundColor: Y2K_COLORS.ACID_GREEN}]} />
-                <FlatList 
-                  style={{ flex: 1 }} 
-                  data={columnItems} 
-                  keyExtractor={(t) => t.id} 
-                  renderItem={renderItemCard} 
+                <FlatList
+                  style={{ flex: 1 }}
+                  data={columnItems}
+                  keyExtractor={(t) => t.id}
+                  renderItem={renderItemCard}
                   showsVerticalScrollIndicator={true}
-                  contentContainerStyle={{ paddingBottom: 20 }} 
-                  ListEmptyComponent={<Text style={styles.emptyText}>[ VACÍO ]</Text>} 
+                  // 100px de aire al final: la última tarea debe poder
+                  // scrollear por encima del botón flotante +.
+                  contentContainerStyle={{ paddingBottom: 100 }}
+                  ListEmptyComponent={<Text style={styles.emptyText}>[ VACÍO ]</Text>}
                   />              
                 </View>
             );
