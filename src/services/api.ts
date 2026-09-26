@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
-import { format } from 'date-fns';
+import { localDayKey } from '../domain/dates';
+import { routineOccursOn } from '../domain/routines';
 
 // --- TIPOS ---
 export interface DbColumn {
@@ -33,11 +34,9 @@ export const api = {
     const user = session?.user || (await supabase.auth.getUser()).data.user;
     if (!user) throw new Error("Usuario no autenticado");
 
-    // 2. Control del Timezone local con date-fns
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    // 2. Día local (no UTC), ver src/domain/dates.ts
     const today = new Date();
-    const currentDayOfWeek = today.getDay(); 
-    const currentDayOfMonth = today.getDate(); 
+    const todayStr = localDayKey(today);
 
     // GENERADOR AUTOMÁTICO (Optimizado con Batching)
     const { data: templates } = await supabase
@@ -63,12 +62,7 @@ export const api = {
         for (const template of templates) {
           if (template.last_generated === todayStr) continue;
 
-          let shouldGenerate = false;
-          if (template.recurrence === 'daily') shouldGenerate = true;
-          else if (template.recurrence === 'weekly' && template.recurrence_day === currentDayOfWeek) shouldGenerate = true;
-          else if (template.recurrence === 'monthly' && template.recurrence_day === currentDayOfMonth) shouldGenerate = true;
-
-          if (shouldGenerate) {
+          if (routineOccursOn(template, today)) {
             console.log(`Cola de generación lista para: ${template.title}`);
             itemsToInsert.push({
               user_id: user.id,

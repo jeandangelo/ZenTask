@@ -8,6 +8,7 @@ import { es } from 'date-fns/locale';
 import { Y2K_COLORS, GLOBAL_STYLES } from '../theme/colors';
 import { api } from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
+import { routineOccursOn } from '../domain/routines';
 
 // Configuración de idioma
 LocaleConfig.locales['es'] = {
@@ -18,14 +19,6 @@ LocaleConfig.locales['es'] = {
   today: 'Hoy'
 };
 LocaleConfig.defaultLocale = 'es';
-
-// ¿La rutina (plantilla) corresponde a esta fecha?
-const routineOccursOn = (routine: any, date: Date) => {
-  if (routine.recurrence === 'daily') return true;
-  if (routine.recurrence === 'weekly') return date.getDay() === routine.recurrence_day;
-  if (routine.recurrence === 'monthly') return date.getDate() === routine.recurrence_day;
-  return false;
-};
 
 // Días hacia adelante que proyectamos las rutinas en el calendario
 const PROJECTION_DAYS = 90;
