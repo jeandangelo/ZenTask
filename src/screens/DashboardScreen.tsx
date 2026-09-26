@@ -1,17 +1,16 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
   StatusBar, Platform, useWindowDimensions,
   Modal, TextInput, ViewToken, ScrollView, ActivityIndicator,
-  ImageBackground, Image, Animated, Easing, ViewStyle, TextStyle
+  ImageBackground, Image, ViewStyle, TextStyle
 } from 'react-native';
 // SafeAreaView de safe-area-context, NO la de react-native: en la PWA con
 // viewport-fit=cover es la única que respeta notch y home indicator del
 // iPhone (con la de react-native la última tarea quedaba bajo el borde).
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { format, isPast, isToday, parseISO, isValid } from 'date-fns';
-import { es } from 'date-fns/locale';
+import { format } from 'date-fns';
 import { Y2K_COLORS } from '../theme/colors';
 import { api, DbItem, isAuthError } from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
@@ -21,86 +20,16 @@ import { localDayKey } from '../domain/dates';
 import { isScheduledFuture, isShoppingTitle } from '../domain/lists';
 import { Recurrence, RECURRENCE_LABELS, recurrenceDayFor, routineOccursOn } from '../domain/routines';
 import DateTimePicker from '@react-native-community/datetimepicker';
-
-interface Task {
-  id: string;
-  columnId: string;
-  type: 'task' | 'goal';
-  title: string;
-  description?: string;
-  status: 'pending' | 'done';
-  tag: string;
-  linkedGoalId?: string;
-  due_date?: string | null;
-  recurrence?: string;
-}
-
-interface ColumnData {
-  id: string;
-  title: string;
-  isGoalColumn?: boolean;
-  isScheduledColumn?: boolean;
-}
+import TaskCard from '../components/dashboard/TaskCard';
+import { LevelUpModal, XPFloatingAnim } from '../components/dashboard/Rewards';
+import { ColumnFormModal, CreateSelectorModal, RoutinesModal } from '../components/dashboard/SimpleModals';
+import { modalStyles } from '../components/dashboard/modalStyles';
+import { ColumnData, Task } from '../components/dashboard/types';
 
 interface DashboardProps {
   navigation: any;
   onLogout: () => void;
 }
-
-const XPFloatingAnim = ({ visible }: { visible: boolean }) => {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const liftAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.5)).current;
-
-  useEffect(() => {
-    if (visible) {
-      fadeAnim.setValue(1);
-      liftAnim.setValue(0);
-      scaleAnim.setValue(0.5);
-      Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 0, duration: 1500, useNativeDriver: true }),
-        Animated.timing(liftAnim, { toValue: -100, duration: 1500, easing: Easing.out(Easing.exp), useNativeDriver: true }),
-        Animated.spring(scaleAnim, { toValue: 1.5, friction: 5, useNativeDriver: true })
-      ]).start();
-    }
-  }, [visible]);
-
-  if (!visible) return null;
-  return (
-    <Animated.View style={[styles.xpContainer, { opacity: fadeAnim, transform: [{ translateY: liftAnim }, { scale: scaleAnim }] }]}>
-      <Text style={styles.xpText}>+10 XP</Text>
-    </Animated.View>
-  );
-};
-
-// COMPONENTE LEVEL UP
-const LevelUpModal = ({ visible, level, onClose }: { visible: boolean, level: number, onClose: () => void }) => {
-  const scaleAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (visible) {
-      Animated.spring(scaleAnim, { toValue: 1, friction: 4, tension: 40, useNativeDriver: true }).start();
-    } else {
-      scaleAnim.setValue(0);
-    }
-  }, [visible]);
-
-  if (!visible) return null;
-  return (
-    <Modal transparent visible={visible} animationType="fade">
-      <View style={styles.levelUpOverlay}>
-        <Animated.View style={[styles.levelUpCard, { transform: [{ scale: scaleAnim }] }]}>
-          <MaterialCommunityIcons name="arrow-up-bold-hexagon-outline" size={80} color={Y2K_COLORS.ACID_GREEN} />
-          <Text style={styles.levelUpTitle}>LEVEL UP!</Text>
-          <Text style={styles.levelUpText}>HAS ALCANZADO EL NIVEL</Text>
-          <Text style={styles.levelNumber}>{level}</Text>
-          <TouchableOpacity style={styles.levelUpBtn} onPress={onClose}>
-            <Text style={styles.levelUpBtnText}>CONTINUAR</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </Modal>
-  );
-};
 
 export default function DashboardScreen({ navigation, onLogout }: DashboardProps) {
   const { width, height } = useWindowDimensions();
@@ -433,47 +362,16 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
     setTimeout(() => setShowXpAnim(false), 2000);
   };
 
-  const renderItemCard = ({ item }: { item: Task }) => {
-    const parentGoal = item.linkedGoalId ? tasks.find(g => g.id === item.linkedGoalId) : null;
-    const isProcessing = processingIds.has(item.id);
-    let isOverdue = false;
-    let dateText = "";
-    if (item.due_date && item.status !== 'done') {
-        const date = parseISO(item.due_date);
-        if (isValid(date)) {
-            if (isPast(date) && !isToday(date)) isOverdue = true;
-            dateText = format(date, "d MMM", { locale: es }).toUpperCase();
-        }
-    }
-
-    return (
-      <TouchableOpacity style={[styles.card, item.type === 'goal' && styles.goalCard, item.status === 'done' && styles.cardDone, isOverdue && styles.cardOverdue, isProcessing && { opacity: 0.5 }]} onPress={() => !isProcessing && startEditItem(item)} activeOpacity={0.9}>
-        <View style={styles.cardHeader}>
-          <View style={{flexDirection:'row', alignItems:'center', flex: 1, flexWrap: 'wrap'}}>
-             <Text style={[styles.cardTag, isOverdue && {color: Y2K_COLORS.ERROR}]}>
-               {item.tag ? `#${item.tag}` : ''} {dateText ? ` // ${dateText}` : ''}
-             </Text>
-             {isOverdue && <MaterialCommunityIcons name="alert-circle" size={14} color={Y2K_COLORS.ERROR} style={{marginLeft:5}} />}
-             {parentGoal && (<View style={styles.linkedBadgeLarge}><MaterialCommunityIcons name="trophy" size={12} color="black" /><Text style={styles.linkedTextLarge}>{parentGoal.title.substring(0, 10)}..</Text></View>)}
-          </View>
-          <TouchableOpacity onPress={() => deleteItem(item.id)} style={{ padding: 5 }}><MaterialCommunityIcons name="dots-horizontal" size={24} color={Y2K_COLORS.LIGHT_GRAY} /></TouchableOpacity>
-        </View>
-        <View style={styles.cardBody}>
-          <TouchableOpacity onPress={() => toggleStatus(item)} disabled={isProcessing} style={styles.checkboxContainer} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            {isProcessing ? <ActivityIndicator size="small" color={Y2K_COLORS.ACID_GREEN} /> :
-               <View style={[styles.checkbox, item.status === 'done' && { backgroundColor: Y2K_COLORS.ACID_GREEN, borderColor: Y2K_COLORS.ACID_GREEN }, item.type === 'goal' && { borderRadius: 6 }, isOverdue && item.status !== 'done' && { borderColor: Y2K_COLORS.ERROR }]}>
-                  {item.status === 'done' && <MaterialCommunityIcons name="check" size={20} color="black" />}
-               </View>
-            }
-          </TouchableOpacity>
-          <View style={{flex: 1}}>
-             <Text style={[styles.cardTitle, item.status === 'done' && { textDecorationLine: 'line-through', color: Y2K_COLORS.DIM_GRAY }, item.type === 'goal' && { fontSize: 20, color: Y2K_COLORS.ACID_GREEN }, isOverdue && item.status !== 'done' && { color: Y2K_COLORS.ERROR }]}>{item.title}</Text>
-             {item.description ? <Text style={[styles.cardDescription, item.status === 'done' && { color: '#444' }]}>{item.description}</Text> : null}
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  const renderItemCard = ({ item }: { item: Task }) => (
+    <TaskCard
+      item={item}
+      parentGoal={item.linkedGoalId ? tasks.find(g => g.id === item.linkedGoalId) : null}
+      isProcessing={processingIds.has(item.id)}
+      onEdit={startEditItem}
+      onDelete={deleteItem}
+      onToggle={toggleStatus}
+    />
+  );
 
   if (isLoading && columns.length === 0) return (<View style={[styles.container, {justifyContent:'center', alignItems:'center'}]}><ActivityIndicator size="large" color={Y2K_COLORS.ACID_GREEN} /></View>);
 
@@ -581,37 +479,26 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
         <XPFloatingAnim visible={showXpAnim} />
         <LevelUpModal visible={showLevelUp} level={currentLevel} onClose={() => setShowLevelUp(false)} />
 
-        {/* MODALS (IGUAL) */}
-        <Modal transparent visible={selectorVisible} animationType="fade">
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelectorVisible(false)}>
-            <View style={styles.selectorBox}>
-              <TouchableOpacity style={styles.selectorOption} onPress={() => startCreateItem('task')}><MaterialCommunityIcons name="checkbox-blank-circle-outline" size={24} color={Y2K_COLORS.WHITE} /><Text style={styles.selectorText}>NUEVA TAREA</Text></TouchableOpacity>
-              <View style={{height: 1, backgroundColor: Y2K_COLORS.GRID_LINE, width: '100%'}} />
-              <TouchableOpacity style={styles.selectorOption} onPress={() => startCreateItem('task', true)}><MaterialCommunityIcons name="cart-outline" size={24} color={Y2K_COLORS.WHITE} /><Text style={styles.selectorText}>NUEVA COMPRA</Text></TouchableOpacity>
-              <View style={{height: 1, backgroundColor: Y2K_COLORS.GRID_LINE, width: '100%'}} />
-              <TouchableOpacity style={styles.selectorOption} onPress={() => startCreateItem('goal')}><MaterialCommunityIcons name="trophy-outline" size={24} color={Y2K_COLORS.ACID_GREEN} /><Text style={[styles.selectorText, {color: Y2K_COLORS.ACID_GREEN}]}>NUEVO OBJETIVO</Text></TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </Modal>
+        <CreateSelectorModal visible={selectorVisible} onClose={() => setSelectorVisible(false)} onPick={startCreateItem} />
         
         <Modal transparent visible={formVisible} animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={styles.formCard}>
-              <Text style={styles.formTitle}>{editingItem ? 'EDITAR' : 'NUEVA'} {shoppingMode ? 'COMPRA 🛒' : targetType === 'goal' ? 'OBJETIVO 🏆' : 'TAREA'}</Text>
-              <Text style={styles.label}>DESCRIPCIÓN:</Text>
-              <TextInput style={styles.input} value={tempTitle} onChangeText={setTempTitle} placeholder="Escribir..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} autoFocus />
-              <Text style={styles.label}>COMENTARIOS / DETALLES:</Text>
-              <TextInput style={[styles.input, {height: 60}]} value={tempDesc} onChangeText={setTempDesc} placeholder="Detalles extra..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} multiline />
+          <View style={modalStyles.modalOverlay}>
+            <View style={modalStyles.formCard}>
+              <Text style={modalStyles.formTitle}>{editingItem ? 'EDITAR' : 'NUEVA'} {shoppingMode ? 'COMPRA 🛒' : targetType === 'goal' ? 'OBJETIVO 🏆' : 'TAREA'}</Text>
+              <Text style={modalStyles.label}>DESCRIPCIÓN:</Text>
+              <TextInput style={modalStyles.input} value={tempTitle} onChangeText={setTempTitle} placeholder="Escribir..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} autoFocus />
+              <Text style={modalStyles.label}>COMENTARIOS / DETALLES:</Text>
+              <TextInput style={[modalStyles.input, {height: 60}]} value={tempDesc} onChangeText={setTempDesc} placeholder="Detalles extra..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} multiline />
               {targetType === 'task' && !shoppingMode && (
                 <>
                   <View style={{flexDirection:'row', justifyContent:'space-between'}}>
                     <View style={{flex:1, marginRight:10}}>
-                      <Text style={styles.label}>ETIQUETA (#):</Text>
-                      <TextInput style={styles.input} value={tempTag} onChangeText={setTempTag} placeholder="Ej. URGENTE" placeholderTextColor={Y2K_COLORS.DIM_GRAY} />
+                      <Text style={modalStyles.label}>ETIQUETA (#):</Text>
+                      <TextInput style={modalStyles.input} value={tempTag} onChangeText={setTempTag} placeholder="Ej. URGENTE" placeholderTextColor={Y2K_COLORS.DIM_GRAY} />
                     </View>
                     
                     <View style={{flex:1}}>
-                      <Text style={styles.label}>VENCE EL DÍA:</Text>
+                      <Text style={modalStyles.label}>VENCE EL DÍA:</Text>
                       
                       {/* LÓGICA ÚNICA PARA WEB Y MÓVIL */}
                       {Platform.OS === 'web' ? (
@@ -630,7 +517,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                         />
                       ) : (
                         <TouchableOpacity 
-                          style={[styles.input, {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}]} 
+                          style={[modalStyles.input, {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}]} 
                           onPress={() => setShowDatePicker(true)}
                         >
                           <Text style={{color: tempDate ? 'white' : Y2K_COLORS.DIM_GRAY}}>
@@ -662,10 +549,10 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
 
                   {!editingItem && (
                     <View style={{marginTop: 15}}>
-                      <Text style={styles.label}>REPETIR (GENERAR AUTOMÁTICO):</Text>
+                      <Text style={modalStyles.label}>REPETIR (GENERAR AUTOMÁTICO):</Text>
                       <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
                         {(Object.keys(RECURRENCE_LABELS) as Recurrence[]).map((opt) => (
-                          <TouchableOpacity key={opt} onPress={() => setRecurrence(opt)} style={[styles.dropdownButton, { flex: 1, marginHorizontal: 2, justifyContent: 'center', borderColor: recurrence === opt ? Y2K_COLORS.ACID_GREEN : Y2K_COLORS.GRID_LINE }]}>
+                          <TouchableOpacity key={opt} onPress={() => setRecurrence(opt)} style={[modalStyles.dropdownButton, { flex: 1, marginHorizontal: 2, justifyContent: 'center', borderColor: recurrence === opt ? Y2K_COLORS.ACID_GREEN : Y2K_COLORS.GRID_LINE }]}>
                             <Text style={{color: recurrence === opt ? Y2K_COLORS.ACID_GREEN : Y2K_COLORS.DIM_GRAY, fontWeight: 'bold', fontSize: 10}}>{RECURRENCE_LABELS[opt]}</Text>
                           </TouchableOpacity>
                         ))}
@@ -675,68 +562,39 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
 
                   {availableGoals.length > 0 && (
                     <View style={{marginTop: 15, zIndex: 10}}>
-                      <Text style={styles.label}>VINCULAR A OBJETIVO:</Text>
-                      <TouchableOpacity style={styles.dropdownButton} onPress={() => setIsDropdownOpen(!isDropdownOpen)}>
+                      <Text style={modalStyles.label}>VINCULAR A OBJETIVO:</Text>
+                      <TouchableOpacity style={modalStyles.dropdownButton} onPress={() => setIsDropdownOpen(!isDropdownOpen)}>
                         <Text style={{color: selectedGoalId ? Y2K_COLORS.ACID_GREEN : Y2K_COLORS.DIM_GRAY, fontWeight: 'bold'}}>{selectedGoalId ? availableGoals.find(g => g.id === selectedGoalId)?.title : "SELECCIONAR OBJETIVO..."}</Text>
                         <MaterialCommunityIcons name={isDropdownOpen ? "chevron-up" : "chevron-down"} size={20} color={Y2K_COLORS.DIM_GRAY} />
                       </TouchableOpacity>
                       {isDropdownOpen && (
-                        <ScrollView style={styles.dropdownList} nestedScrollEnabled>
-                          <TouchableOpacity onPress={() => { setSelectedGoalId(''); setIsDropdownOpen(false); }} style={styles.dropdownItem}><Text style={{color: Y2K_COLORS.DIM_GRAY}}>[NINGUNO]</Text></TouchableOpacity>
-                          {availableGoals.map(g => (<TouchableOpacity key={g.id} onPress={() => { setSelectedGoalId(g.id); setIsDropdownOpen(false); }} style={styles.dropdownItem}><Text style={{color: Y2K_COLORS.WHITE}}>{g.title}</Text></TouchableOpacity>))}
+                        <ScrollView style={modalStyles.dropdownList} nestedScrollEnabled>
+                          <TouchableOpacity onPress={() => { setSelectedGoalId(''); setIsDropdownOpen(false); }} style={modalStyles.dropdownItem}><Text style={{color: Y2K_COLORS.DIM_GRAY}}>[NINGUNO]</Text></TouchableOpacity>
+                          {availableGoals.map(g => (<TouchableOpacity key={g.id} onPress={() => { setSelectedGoalId(g.id); setIsDropdownOpen(false); }} style={modalStyles.dropdownItem}><Text style={{color: Y2K_COLORS.WHITE}}>{g.title}</Text></TouchableOpacity>))}
                         </ScrollView>
                       )}
                     </View>
                   )}
                 </>
               )}
-              <View style={styles.formActions}>
-                <TouchableOpacity onPress={() => setFormVisible(false)}><Text style={styles.cancelText}>CANCELAR</Text></TouchableOpacity>
-                <TouchableOpacity style={styles.saveBtn} onPress={saveItem}><Text style={styles.saveText}>GUARDAR</Text></TouchableOpacity>
+              <View style={modalStyles.formActions}>
+                <TouchableOpacity onPress={() => setFormVisible(false)}><Text style={modalStyles.cancelText}>CANCELAR</Text></TouchableOpacity>
+                <TouchableOpacity style={modalStyles.saveBtn} onPress={saveItem}><Text style={modalStyles.saveText}>GUARDAR</Text></TouchableOpacity>
               </View>
             </View>
           </View>
         </Modal>
 
-        <Modal transparent visible={columnFormVisible} animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={styles.formCard}>
-              <Text style={styles.formTitle}>{editingColumn ? 'RENOMBRAR' : 'NUEVA COLUMNA'}</Text>
-              <TextInput style={styles.input} value={tempTitle} onChangeText={setTempTitle} placeholder="Ej. PROYECTOS" placeholderTextColor={Y2K_COLORS.DIM_GRAY} autoFocus />
-              <View style={styles.formActions}>
-                <TouchableOpacity onPress={() => setColumnFormVisible(false)}><Text style={styles.cancelText}>CANCELAR</Text></TouchableOpacity>
-                <TouchableOpacity style={styles.saveBtn} onPress={saveColumn}><Text style={styles.saveText}>CONFIRMAR</Text></TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        <ColumnFormModal
+          visible={columnFormVisible}
+          isEditing={!!editingColumn}
+          title={tempTitle}
+          onChangeTitle={setTempTitle}
+          onCancel={() => setColumnFormVisible(false)}
+          onConfirm={saveColumn}
+        />
 
-        <Modal transparent visible={routinesVisible} animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={[styles.formCard, {height: '60%'}]}>
-              <Text style={styles.formTitle}>MIS RUTINAS ACTIVAS</Text>
-              <Text style={{color:Y2K_COLORS.DIM_GRAY, marginBottom: 15, textAlign:'center'}}>Estas tareas se generan automáticamente.</Text>
-              <ScrollView>
-                {routinesList.length === 0 ? (
-                  <Text style={styles.emptyText}>No tienes rutinas configuradas.</Text>
-                ) : (
-                  routinesList.map(r => (
-                    <View key={r.id} style={[styles.card, {flexDirection:'row', justifyContent:'space-between', alignItems:'center'}]}>
-                      <View>
-                        <Text style={{color:'white', fontWeight:'bold'}}>{r.title}</Text>
-                        <Text style={{color:Y2K_COLORS.ACID_GREEN, fontSize:10}}>REPETICIÓN: {r.recurrence?.toUpperCase()}</Text>
-                      </View>
-                      <TouchableOpacity onPress={() => deleteRoutine(r.id)} style={{padding:10}}>
-                        <MaterialCommunityIcons name="trash-can" size={20} color={Y2K_COLORS.ERROR} />
-                      </TouchableOpacity>
-                    </View>
-                  ))
-                )}
-              </ScrollView>
-              <TouchableOpacity style={[styles.cancelBtn, {marginTop:20}]} onPress={() => setRoutinesVisible(false)}><Text style={styles.cancelBtnText}>CERRAR</Text></TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
+        <RoutinesModal visible={routinesVisible} routines={routinesList} onDelete={deleteRoutine} onClose={() => setRoutinesVisible(false)} />
 
       </SafeAreaView>
     </Wrapper>
@@ -765,51 +623,10 @@ const styles = StyleSheet.create({
   columnContainer: { paddingHorizontal: 20, flex: 1 },
   columnHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 5 },
   columnTitle: { color: Y2K_COLORS.WHITE, fontSize: 24, fontWeight: '800', fontStyle: 'italic' },
-  line: { width: '100%', height: 2, backgroundColor: Y2K_COLORS.GRID_LINE, marginTop: 5, marginBottom: 15 },  emptyText: { color: Y2K_COLORS.DIM_GRAY, textAlign: 'center', marginTop: 30, fontFamily: 'monospace' },
-  card: { backgroundColor: Y2K_COLORS.DARK_GRAY, padding: 15, marginBottom: 12, borderWidth: 1, borderColor: Y2K_COLORS.GRID_LINE, borderLeftWidth: 4, borderLeftColor: Y2K_COLORS.DIM_GRAY },
-  cardOverdue: { borderColor: Y2K_COLORS.ERROR, borderLeftColor: Y2K_COLORS.ERROR, backgroundColor: 'rgba(255, 0, 60, 0.05)' },
-  cardDone: { opacity: 0.6, borderLeftColor: Y2K_COLORS.ACID_GREEN, backgroundColor: '#111' },
-  goalCard: { backgroundColor: '#0A0A0A', borderLeftColor: Y2K_COLORS.ACID_GREEN, borderWidth: 1, borderColor: Y2K_COLORS.ACID_GREEN },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  cardTag: { color: Y2K_COLORS.DIM_GRAY, fontSize: 11, fontFamily: 'monospace', fontWeight: 'bold' },
-  linkedBadgeLarge: { flexDirection: 'row', alignItems: 'center', backgroundColor: Y2K_COLORS.ACID_GREEN, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginLeft: 10 },
-  linkedTextLarge: { fontSize: 11, fontWeight: 'bold', color: 'black', marginLeft: 4 },
-  cardBody: { flexDirection: 'row', alignItems: 'center' },
-  cardTitle: { color: Y2K_COLORS.WHITE, fontSize: 16, fontWeight: '600', flex: 1 },
-  cardDescription: { color: Y2K_COLORS.DIM_GRAY, fontSize: 12, marginTop: 4, fontFamily: 'monospace' },
-  checkboxContainer: { marginRight: 12 },
-  checkbox: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: Y2K_COLORS.DIM_GRAY, justifyContent: 'center', alignItems: 'center' },
+  line: { width: '100%', height: 2, backgroundColor: Y2K_COLORS.GRID_LINE, marginTop: 5, marginBottom: 15 },
+  emptyText: { color: Y2K_COLORS.DIM_GRAY, textAlign: 'center', marginTop: 30, fontFamily: 'monospace' },
   fab: { position: 'absolute', bottom: 30, right: 20, width: 65, height: 65, borderRadius: 35, backgroundColor: Y2K_COLORS.ACID_GREEN, justifyContent: 'center', alignItems: 'center', ...Platform.select({ web: { boxShadow: '0px 4px 10px rgba(0,0,0,0.5)' }, default: { elevation: 5 } }) },
   fabText: { fontSize: 35, fontWeight: '400', color: '#000', marginTop: -3 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
-  selectorBox: { width: 280, backgroundColor: Y2K_COLORS.DARK_GRAY, borderWidth: 1, borderColor: Y2K_COLORS.ACID_GREEN, padding: 20 },
-  selectorTitle: { color: Y2K_COLORS.WHITE, textAlign: 'center', marginBottom: 20, fontWeight: 'bold' },
-  selectorOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15 },
-  selectorText: { color: Y2K_COLORS.WHITE, marginLeft: 15, fontWeight: 'bold' },
-  formCard: { width: '85%', maxWidth: 400, backgroundColor: '#000', borderWidth: 1, borderColor: Y2K_COLORS.WHITE, padding: 25 },
-  formTitle: { color: Y2K_COLORS.ACID_GREEN, fontSize: 20, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
-  label: { color: Y2K_COLORS.DIM_GRAY, fontSize: 12, marginBottom: 5, marginTop: 10 },
-  input: { backgroundColor: Y2K_COLORS.DARK_GRAY, color: 'white', padding: 12, borderWidth: 1, borderColor: Y2K_COLORS.GRID_LINE, fontSize: 16 },
-  dateBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: Y2K_COLORS.DARK_GRAY, padding: 12, borderWidth: 1, borderColor: Y2K_COLORS.GRID_LINE },
-  dropdownButton: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: Y2K_COLORS.DARK_GRAY, padding: 12, borderWidth: 1, borderColor: Y2K_COLORS.GRID_LINE },
-  dropdownList: { borderWidth: 1, borderColor: Y2K_COLORS.GRID_LINE, borderTopWidth: 0, maxHeight: 150, backgroundColor: Y2K_COLORS.DARK_GRAY },
-  dropdownItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: '#222' },
-  formActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 30 },
-  cancelText: { color: Y2K_COLORS.ERROR, fontWeight: 'bold', padding: 10 },
-  cancelBtn: { marginTop: 10, alignItems: 'center', padding: 15 },
-  cancelBtnText: { color: Y2K_COLORS.DIM_GRAY, fontWeight: 'bold' },
-  saveBtn: { backgroundColor: Y2K_COLORS.ACID_GREEN, paddingVertical: 10, paddingHorizontal: 25 },
-  saveText: { color: 'black', fontWeight: 'bold' },
-  xpContainer: { position: 'absolute', top: '40%', alignSelf: 'center', backgroundColor: Y2K_COLORS.ACID_GREEN, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, borderWidth: 2, borderColor: 'white', shadowColor: Y2K_COLORS.ACID_GREEN, shadowOpacity: 0.8, shadowRadius: 10, zIndex: 999 },
-  xpText: { fontSize: 24, fontWeight: '900', color: 'black' },
-  
-  levelUpOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.9)' },
-  levelUpCard: { width: 300, padding: 30, backgroundColor: Y2K_COLORS.DARK_GRAY, alignItems: 'center', borderWidth: 2, borderColor: Y2K_COLORS.ACID_GREEN },
-  levelUpTitle: { color: Y2K_COLORS.ACID_GREEN, fontSize: 30, fontWeight: '900', marginVertical: 10 },
-  levelUpText: { color: 'white', fontSize: 16, marginBottom: 5 },
-  levelNumber: { color: 'white', fontSize: 80, fontWeight: 'bold', marginBottom: 20 },
-  levelUpBtn: { backgroundColor: Y2K_COLORS.ACID_GREEN, paddingHorizontal: 30, paddingVertical: 10 },
-  levelUpBtnText: { color: 'black', fontWeight: 'bold' },
 
   searchContainer: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: Y2K_COLORS.DARK_GRAY, marginHorizontal: 20, marginTop: 10,
