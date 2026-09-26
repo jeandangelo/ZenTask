@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Text, TextInput, TouchableOpacity, TextStyle, ViewStyle, View, Platform, Alert } from 'react-native';
+import { Text, TextInput, TouchableOpacity, TextStyle, ViewStyle, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Y2K_COLORS, GLOBAL_STYLES } from '../theme/colors';
 import { supabase } from '../services/supabase';
+import { notify } from '../services/dialogs';
 
 interface AuthProps {
   onLoginSuccess: (user: any) => void;
@@ -14,17 +15,9 @@ const AuthScreen = ({ onLoginSuccess }: AuthProps) => {
   const [loading, setLoading] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
 
-  const showAlert = (title: string, msg: string) => {
-    if (Platform.OS === 'web') {
-      window.alert(`${title}: ${msg}`);
-    } else {
-      Alert.alert(title, msg);
-    }
-  };
-
   const handleAuth = async () => {
     if (!email || !password) {
-      showAlert("Faltan datos", "Ingresa email y contraseña");
+      notify("Faltan datos", "Ingresa email y contraseña");
       return;
     }
 
@@ -33,7 +26,7 @@ const AuthScreen = ({ onLoginSuccess }: AuthProps) => {
       if (isRegisterMode) {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        showAlert("VERIFICACIÓN", "Revisa tu correo y confirma la cuenta.");
+        notify("VERIFICACIÓN", "Revisa tu correo y confirma la cuenta.");
         setIsRegisterMode(false);
       } else {
         // El SDK guarda y refresca la sesión solo; App.tsx se entera
@@ -45,7 +38,7 @@ const AuthScreen = ({ onLoginSuccess }: AuthProps) => {
 
     } catch (err: any) {
       console.error("Error API:", err);
-      showAlert("Error", err.message);
+      notify("Error", err.message);
     } finally {
       setLoading(false);
     }

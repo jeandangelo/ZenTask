@@ -9,6 +9,7 @@ import { format, parseISO, isValid } from 'date-fns';
 import { Y2K_COLORS, GLOBAL_STYLES } from '../theme/colors';
 import { supabase } from '../services/supabase';
 import { api } from '../services/api';
+import { notify } from '../services/dialogs';
 
 export default function ProfileScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
@@ -85,9 +86,9 @@ export default function ProfileScreen({ navigation }: any) {
       });
       setProfile({ ...profile, username: formName, bio: formBio, avatar_url: formAvatar });
       setIsEditing(false);
-      alert("PERFIL ACTUALIZADO");
+      notify("Perfil actualizado");
     } catch (e) {
-      alert("Error al guardar.");
+      notify("Error", "No se pudo guardar el perfil.");
     } finally {
       setSaving(false);
     }

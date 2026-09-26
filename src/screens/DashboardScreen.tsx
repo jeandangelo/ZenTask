@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
   StatusBar, Platform, useWindowDimensions,
-  Modal, TextInput, Alert, ViewToken, ScrollView, ActivityIndicator,
+  Modal, TextInput, ViewToken, ScrollView, ActivityIndicator,
   ImageBackground, Image, Animated, Easing, ViewStyle, TextStyle
 } from 'react-native';
 // SafeAreaView de safe-area-context, NO la de react-native: en la PWA con
@@ -16,6 +16,7 @@ import { Y2K_COLORS } from '../theme/colors';
 import { api } from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
 import { notificationService } from '../services/notifications';
+import { confirmAction, notify } from '../services/dialogs';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface Task {
@@ -191,16 +192,10 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   };
 
   const deleteRoutine = async (id: string) => {
-    const confirmDel = async () => {
-        await api.deleteItem(id);
-        const data = await api.getRoutines();
-        setRoutinesList(data);
-    };
-    if (Platform.OS === 'web') {
-        if (confirm("¿Borrar rutina?")) confirmDel();
-    } else {
-        Alert.alert("Borrar Rutina", "¿Dejar de repetir?", [{ text: "Cancelar" }, { text: "Sí", onPress: confirmDel, style: 'destructive' }]);
-    }
+    if (!(await confirmAction("Borrar rutina", "¿Dejar de repetir esta rutina?"))) return;
+    await api.deleteItem(id);
+    const data = await api.getRoutines();
+    setRoutinesList(data);
   };
 
   useFocusEffect(useCallback(() => { loadData(); }, []));
@@ -236,18 +231,20 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
       if (editingColumn) { await api.updateColumn(editingColumn.id, tempTitle); } 
       else { await api.createColumn(tempTitle.toUpperCase(), columns.length); setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 500); }
       await loadData();
-    } catch (e) { alert("Error"); setIsLoading(false); }
+    } catch (e) { notify("Error", "No se pudo guardar la columna."); setIsLoading(false); }
   };
   const deleteColumn = async (id: string) => {
      if (columns.length <= 1) return;
      const col = columns.find(c => c.id === id);
      if (col && isShoppingTitle(col.title)) {
-       const msg = "SHOPPING LIST es una lista por defecto y no se puede borrar.";
-       if (Platform.OS === 'web') alert(msg); else Alert.alert("Lista protegida", msg);
+       notify("Lista protegida", "SHOPPING LIST es una lista por defecto y no se puede borrar.");
        return;
      }
-     const doDelete = async () => { setIsLoading(true); await api.deleteColumn(id); await loadData(); if (activeIndex > 0) scrollToColumn(activeIndex - 1); };
-     if (Platform.OS === 'web') { if (confirm("¿Borrar?")) doDelete(); } else { Alert.alert("Confirmar", "¿Borrar columna?", [{ text: "Cancelar" }, { text: "Sí", onPress: doDelete, style: "destructive" }]); }
+     if (!(await confirmAction("Borrar columna", `¿Borrar la columna "${col?.title ?? ''}"?`))) return;
+     setIsLoading(true);
+     await api.deleteColumn(id);
+     await loadData();
+     if (activeIndex > 0) scrollToColumn(activeIndex - 1);
   };
 
   const startCreateItem = (type: 'task' | 'goal', shopping = false) => {
@@ -291,7 +288,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
 
   const saveItem = async () => {
     if (!tempTitle.trim()) return;
-    if (columns.length === 0) { alert("Crea una columna."); return; }
+    if (columns.length === 0) { notify("Sin columnas", "Crea una columna primero."); return; }
     
     setFormVisible(false); 
     setIsLoading(true);
@@ -349,9 +346,9 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                 due_date: new Date().toISOString()
              });
              await api.updateItem(template.id, { last_generated: todayStr });
-             if (Platform.OS === 'web') alert("Rutina creada y tarea de hoy generada.");
+             notify("Rutina creada", "También se generó la tarea de hoy.");
           } else {
-             if (Platform.OS === 'web') alert("Rutina guardada.");
+             notify("Rutina guardada", "Se generará automáticamente los días que corresponda.");
           }
         } else {
             let targetColId = "";
@@ -384,13 +381,14 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
       await loadData();
     } catch (e) { 
       console.error(e); 
-      alert("Error guardando."); 
+      notify("Error", "No se pudo guardar.");
       setIsLoading(false); 
     }
   };
 
   const deleteItem = async (id: string) => {
-    if (Platform.OS === 'web' && !confirm("¿Eliminar?")) return;
+    const item = tasks.find(t => t.id === id);
+    if (!(await confirmAction("Eliminar", `¿Eliminar "${item?.title ?? 'este ítem'}"?`))) return;
     setIsLoading(true); await api.deleteItem(id); await loadData();
   };
 
