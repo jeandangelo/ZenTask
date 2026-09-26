@@ -4,9 +4,8 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Session } from '@supabase/supabase-js';
-import CalendarScreen from './src/screens/CalendarScreen'; // <--- IMPORTAR
-import { supabase } from './src/services/supabase';
-// 👇 IMPORTAMOS EL SERVICIO
+import CalendarScreen from './src/screens/CalendarScreen';
+import { api } from './src/services/api';
 import { notificationService } from './src/services/notifications';
 
 import AuthScreen from './src/screens/AuthScreen';
@@ -27,7 +26,7 @@ export default function App() {
     // 2. VERIFICAR SESIÓN
     const checkSession = async () => {
       try {
-        const { data } = await supabase.auth.getSession();
+        const { data } = await api.auth.getSession();
         if (data.session) setSession(data.session);
       } catch (e) {
         console.error(e);
@@ -37,7 +36,7 @@ export default function App() {
     };
     checkSession();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: authListener } = api.auth.onAuthStateChange((session) => {
       setSession(session);
       setIsLoading(false);
     });
@@ -59,7 +58,7 @@ export default function App() {
         {session && session.user ? (
           <>
             <Stack.Screen name="Dashboard">
-              {(props) => <DashboardScreen {...props} onLogout={() => supabase.auth.signOut()} />}
+              {(props) => <DashboardScreen {...props} onLogout={() => api.auth.signOut()} />}
             </Stack.Screen>
             <Stack.Screen name="Profile" component={ProfileScreen} />
             <Stack.Screen name="Calendar" component={CalendarScreen} />

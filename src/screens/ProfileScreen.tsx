@@ -5,10 +5,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { format, parseISO, isValid } from 'date-fns';
 import { Y2K_COLORS, GLOBAL_STYLES } from '../theme/colors';
-import { supabase } from '../services/supabase';
-import { api } from '../services/api';
+import { api, DbProfile, EfficiencyStats } from '../services/api';
 import { notify } from '../services/dialogs';
 
 export default function ProfileScreen({ navigation }: any) {
@@ -17,9 +15,9 @@ export default function ProfileScreen({ navigation }: any) {
   const [isEditing, setIsEditing] = useState(false);
   const [zoomVisible, setZoomVisible] = useState(false);
   
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<DbProfile | null>(null);
   // ESTADO PARA ESTADÍSTICAS
-  const [stats, setStats] = useState({ total: 0, done: 0, pending: 0, percent: 0 });
+  const [stats, setStats] = useState<EfficiencyStats>({ total: 0, done: 0, pending: 0, percent: 0 });
   
   const [formName, setFormName] = useState('');
   const [formBio, setFormBio] = useState('');
@@ -31,7 +29,8 @@ export default function ProfileScreen({ navigation }: any) {
 
   const loadData = async () => {
     try {
-      const profileData = await api.getProfile();
+      // Perfil y estadísticas en paralelo
+      const [profileData, statsData] = await Promise.all([api.getProfile(), api.getEfficiencyStats()]);
       if (profileData) {
         setProfile(profileData);
         setFormName(profileData.username || '');
@@ -39,36 +38,8 @@ export default function ProfileScreen({ navigation }: any) {
         setFormAvatar(profileData.avatar_url || '');
       }
 
-      // CALCULAR ESTADÍSTICAS EN TIEMPO REAL
-      // (En una app masiva esto se haría en el servidor, pero para MVP está bien aquí)
-      // EFICIENCIA JUSTA: solo cuentan las tareas EXIGIBLES.
-      // Quedan fuera: objetivos, compras (shopping list) y tareas programadas
-      // a futuro — hacer una tarea el día que la estipulaste no baja la eficacia.
-      const { data: items } = await supabase.from('items').select('status, due_date, tag, type, column_id').eq('is_template', false);
-      const { data: cols } = await supabase.from('columns').select('id, title');
-      if (items) {
-        const shoppingColIds = new Set(
-          (cols || []).filter((c: any) => /SHOP|COMPRA/i.test(c.title || '')).map((c: any) => c.id)
-        );
-        const todayStr = format(new Date(), 'yyyy-MM-dd');
-
-        const relevant = items.filter((i: any) =>
-          i.type === 'task' &&
-          !shoppingColIds.has(i.column_id) &&
-          (i.tag || '').toUpperCase() !== 'COMPRA'
-        );
-        const done = relevant.filter((i: any) => i.status === 'done').length;
-        const pending = relevant.filter((i: any) => {
-          if (i.status === 'done') return false;
-          if (!i.due_date) return true; // sin fecha = exigible hoy
-          const d = parseISO(i.due_date);
-          return !isValid(d) || format(d, 'yyyy-MM-dd') <= todayStr; // las futuras no cuentan
-        }).length;
-        const total = done + pending;
-        const percent = total > 0 ? Math.round((done / total) * 100) : 100; // sin pendientes exigibles = al día
-        setStats({ total, done, pending, percent });
-      }
-
+      // Eficiencia justa: la regla vive en api.getEfficiencyStats
+      setStats(statsData);
     } catch (error) {
       console.log('Error:', error);
     } finally {
@@ -79,12 +50,14 @@ export default function ProfileScreen({ navigation }: any) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.updateProfile({
+      const { error } = await api.updateProfile({
         username: formName,
         bio: formBio,
         avatar_url: formAvatar 
       });
-      setProfile({ ...profile, username: formName, bio: formBio, avatar_url: formAvatar });
+      // Supabase no lanza excepción: devuelve el error en la respuesta
+      if (error) throw error;
+      if (profile) setProfile({ ...profile, username: formName, bio: formBio, avatar_url: formAvatar });
       setIsEditing(false);
       notify("Perfil actualizado");
     } catch (e) {
@@ -95,7 +68,7 @@ export default function ProfileScreen({ navigation }: any) {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
   };
 
   // Lógica Nivel

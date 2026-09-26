@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Text, TextInput, TouchableOpacity, TextStyle, ViewStyle, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Y2K_COLORS, GLOBAL_STYLES } from '../theme/colors';
-import { supabase } from '../services/supabase';
+import { api } from '../services/api';
 import { notify } from '../services/dialogs';
 
 interface AuthProps {
@@ -24,14 +24,14 @@ const AuthScreen = ({ onLoginSuccess }: AuthProps) => {
     setLoading(true);
     try {
       if (isRegisterMode) {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await api.auth.signUp(email, password);
         if (error) throw error;
         notify("VERIFICACIÓN", "Revisa tu correo y confirma la cuenta.");
         setIsRegisterMode(false);
       } else {
         // El SDK guarda y refresca la sesión solo; App.tsx se entera
         // vía onAuthStateChange, así que no hace falta setSession manual.
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await api.auth.signIn(email, password);
         if (error) throw error;
         onLoginSuccess(data.user);
       }
