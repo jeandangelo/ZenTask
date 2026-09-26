@@ -17,6 +17,9 @@ import { api } from '../services/api';
 import { useFocusEffect } from '@react-navigation/native';
 import { notificationService } from '../services/notifications';
 import { confirmAction, notify } from '../services/dialogs';
+import { localDayKey } from '../domain/dates';
+import { isScheduledFuture, isShoppingTitle } from '../domain/lists';
+import { Recurrence, RECURRENCE_LABELS, recurrenceDayFor, routineOccursOn } from '../domain/routines';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface Task {
@@ -38,17 +41,6 @@ interface ColumnData {
   isGoalColumn?: boolean;
   isScheduledColumn?: boolean;
 }
-
-// Lista SHOPPING: columna real por defecto, detectada por título (protegida contra borrado)
-const isShoppingTitle = (title: string) => /SHOP|COMPRA/i.test(title || '');
-
-// Tarea programada: pendiente y con fecha posterior a hoy (comparación por día local)
-const isScheduledFuture = (t: Task) => {
-  if (!t.due_date || t.status === 'done') return false;
-  const d = parseISO(t.due_date);
-  if (!isValid(d)) return false;
-  return format(d, 'yyyy-MM-dd') > format(new Date(), 'yyyy-MM-dd');
-};
 
 interface DashboardProps {
   navigation: any;
@@ -140,7 +132,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   const [tempTag, setTempTag] = useState('');
   const [tempDate, setTempDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false); 
-  const [recurrence, setRecurrence] = useState<'none'|'daily'|'weekly'|'monthly'>('none');
+  const [recurrence, setRecurrence] = useState<Recurrence>('none');
 
   const [selectedGoalId, setSelectedGoalId] = useState<string>('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false); 
@@ -316,22 +308,19 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
       } else {
         if (recurrence !== 'none') {
           const today = new Date();
-          const todayStr = today.toISOString().split('T')[0];
-          let recDay = 0;
-          if (recurrence === 'weekly') recDay = today.getDay(); 
-          if (recurrence === 'monthly') recDay = today.getDate();
+          // Día LOCAL: con toISOString() una rutina creada de noche quedaba
+          // marcada como generada "mañana" y ese día no aparecía.
+          const todayStr = localDayKey(today);
+          const recDay = recurrenceDayFor(recurrence, today);
 
           const { data: template } = await api.createItem({
             title: tempTitle, description: tempDesc, type: targetType, column_id: columns[0].id,
             tag: tempTag || 'RUTINA', linked_goal_id: goalIdToSend,
             is_template: true, recurrence: recurrence, recurrence_day: recDay,
-            last_generated: undefined 
+            last_generated: undefined
           });
 
-          let shouldCreateNow = false;
-          if (recurrence === 'daily') shouldCreateNow = true;
-          if (recurrence === 'weekly' && recDay === today.getDay()) shouldCreateNow = true;
-          if (recurrence === 'monthly' && recDay === today.getDate()) shouldCreateNow = true;
+          const shouldCreateNow = routineOccursOn({ recurrence, recurrence_day: recDay }, today);
 
           if (shouldCreateNow && template) {
              let targetColId = columns[0].id;
@@ -630,7 +619,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                             color: 'white', border: `1px solid ${Y2K_COLORS.GRID_LINE}`, 
                             width: '100%', fontFamily: 'monospace', outline: 'none'
                           }} 
-                          value={tempDate ? tempDate.toISOString().split('T')[0] : ''} 
+                          value={tempDate ? localDayKey(tempDate) : ''} 
                           onChange={(e) => {
                             if (e.target.value) setTempDate(new Date(e.target.value + 'T12:00:00'));
                             else setTempDate(null);
@@ -672,9 +661,9 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
                     <View style={{marginTop: 15}}>
                       <Text style={styles.label}>REPETIR (GENERAR AUTOMÁTICO):</Text>
                       <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-                        {['none', 'daily', 'weekly', 'monthly'].map((opt) => (
-                          <TouchableOpacity key={opt} onPress={() => setRecurrence(opt as any)} style={[styles.dropdownButton, { flex: 1, marginHorizontal: 2, justifyContent: 'center', borderColor: recurrence === opt ? Y2K_COLORS.ACID_GREEN : Y2K_COLORS.GRID_LINE }]}>
-                            <Text style={{color: recurrence === opt ? Y2K_COLORS.ACID_GREEN : Y2K_COLORS.DIM_GRAY, fontWeight: 'bold', fontSize: 10}}>{opt === 'none' ? 'NUNCA' : opt === 'daily' ? 'DIARIO' : opt === 'weekly' ? 'SEMANAL' : 'MENSUAL'}</Text>
+                        {(Object.keys(RECURRENCE_LABELS) as Recurrence[]).map((opt) => (
+                          <TouchableOpacity key={opt} onPress={() => setRecurrence(opt)} style={[styles.dropdownButton, { flex: 1, marginHorizontal: 2, justifyContent: 'center', borderColor: recurrence === opt ? Y2K_COLORS.ACID_GREEN : Y2K_COLORS.GRID_LINE }]}>
+                            <Text style={{color: recurrence === opt ? Y2K_COLORS.ACID_GREEN : Y2K_COLORS.DIM_GRAY, fontWeight: 'bold', fontSize: 10}}>{RECURRENCE_LABELS[opt]}</Text>
                           </TouchableOpacity>
                         ))}
                       </View>
