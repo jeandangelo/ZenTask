@@ -65,6 +65,9 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
 
   const [selectedGoalId, setSelectedGoalId] = useState<string>('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false); 
+  // Formulario simple por defecto (solo título); fecha, rutina, etiqueta,
+  // detalles y objetivo quedan detrás de "OPCIONES AVANZADAS".
+  const [showAdvanced, setShowAdvanced] = useState(false);
   
   const [editingItem, setEditingItem] = useState<Task | null>(null);
   const [editingColumn, setEditingColumn] = useState<ColumnData | null>(null);
@@ -183,6 +186,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
     setTempDate(null); 
     setRecurrence('none'); 
     setIsDropdownOpen(false); 
+    setShowAdvanced(false);
     setSelectorVisible(false); 
     setFormVisible(true);
   };
@@ -207,6 +211,8 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
     
     setRecurrence('none'); 
     setIsDropdownOpen(false); 
+    // Al editar, las avanzadas se abren solo si la tarea ya usa alguna
+    setShowAdvanced(!!(item.description || item.due_date || item.linkedGoalId));
     setFormVisible(true);
   };
 
@@ -485,11 +491,22 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
           <View style={modalStyles.modalOverlay}>
             <View style={modalStyles.formCard}>
               <Text style={modalStyles.formTitle}>{editingItem ? 'EDITAR' : 'NUEVA'} {shoppingMode ? 'COMPRA 🛒' : targetType === 'goal' ? 'OBJETIVO 🏆' : 'TAREA'}</Text>
-              <Text style={modalStyles.label}>DESCRIPCIÓN:</Text>
-              <TextInput style={modalStyles.input} value={tempTitle} onChangeText={setTempTitle} placeholder="Escribir..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} autoFocus />
-              <Text style={modalStyles.label}>COMENTARIOS / DETALLES:</Text>
-              <TextInput style={[modalStyles.input, {height: 60}]} value={tempDesc} onChangeText={setTempDesc} placeholder="Detalles extra..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} multiline />
+              <Text style={modalStyles.label}>TÍTULO:</Text>
+              {/* Enter guarda: anotar algo simple no debería pedir más que escribir */}
+              <TextInput style={modalStyles.input} value={tempTitle} onChangeText={setTempTitle} placeholder="Escribir..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} autoFocus returnKeyType="done" onSubmitEditing={saveItem} />
               {targetType === 'task' && !shoppingMode && (
+                <TouchableOpacity onPress={() => setShowAdvanced(v => !v)} style={styles.advancedToggle}>
+                  <MaterialCommunityIcons name={showAdvanced ? 'chevron-up' : 'tune-variant'} size={16} color={Y2K_COLORS.DIM_GRAY} />
+                  <Text style={styles.advancedToggleText}>{showAdvanced ? 'OCULTAR OPCIONES' : 'OPCIONES AVANZADAS'}</Text>
+                </TouchableOpacity>
+              )}
+              {(targetType !== 'task' || shoppingMode || showAdvanced) && (
+                <>
+                  <Text style={modalStyles.label}>COMENTARIOS / DETALLES:</Text>
+                  <TextInput style={[modalStyles.input, {height: 60}]} value={tempDesc} onChangeText={setTempDesc} placeholder="Detalles extra..." placeholderTextColor={Y2K_COLORS.DIM_GRAY} multiline />
+                </>
+              )}
+              {targetType === 'task' && !shoppingMode && showAdvanced && (
                 <>
                   <View style={{flexDirection:'row', justifyContent:'space-between'}}>
                     <View style={{flex:1, marginRight:10}}>
@@ -626,6 +643,8 @@ const styles = StyleSheet.create({
   line: { width: '100%', height: 2, backgroundColor: Y2K_COLORS.GRID_LINE, marginTop: 5, marginBottom: 15 },
   emptyText: { color: Y2K_COLORS.DIM_GRAY, textAlign: 'center', marginTop: 30, fontFamily: 'monospace' },
   fab: { position: 'absolute', bottom: 30, right: 20, width: 65, height: 65, borderRadius: 35, backgroundColor: Y2K_COLORS.ACID_GREEN, justifyContent: 'center', alignItems: 'center', ...Platform.select({ web: { boxShadow: '0px 4px 10px rgba(0,0,0,0.5)' }, default: { elevation: 5 } }) },
+  advancedToggle: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginTop: 12, paddingVertical: 6 },
+  advancedToggleText: { color: Y2K_COLORS.DIM_GRAY, fontSize: 11, fontWeight: 'bold', marginLeft: 6, letterSpacing: 1 },
   fabText: { fontSize: 35, fontWeight: '400', color: '#000', marginTop: -3 },
 
   searchContainer: {
