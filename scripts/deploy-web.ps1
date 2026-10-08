@@ -44,6 +44,8 @@ try {
   git add -A
   git commit -m "deploy web $(Get-Date -Format 'yyyy-MM-dd HH:mm')" | Out-Null
   git push -f https://github.com/jeandangelo/ZenTask.git gh-pages:gh-pages
+  # Sin esto, un push fallido (p. ej. sin credenciales) igual terminaba en "Publicado"
+  if ($LASTEXITCODE -ne 0) { throw "git push a gh-pages fallo (codigo $LASTEXITCODE): nada se publico" }
 } finally {
   Pop-Location
   if (Test-Path dist\.git) { Remove-Item dist\.git -Recurse -Force }
