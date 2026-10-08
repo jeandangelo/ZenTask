@@ -43,8 +43,8 @@ rutinas como entidad propia y calendario por horas.
 
 **Etapa actual: 1 — SQL en revisión de Jean** (etapa 0 cerrada el 8 oct;
 el arranque en frío quedó postergado por decisión de Jean). Por etapas
-(sección 8): no
-se empieza una sin que Jean apruebe la anterior probándola en su celular.
+(sección 8): no se empieza una sin que Jean apruebe la anterior
+probándola en su celular.
 
 Reglas de trabajo del rediseño (sección 2 del documento):
 - Todo SQL se muestra a Jean antes de ejecutarse; nada sin su aprobación.
