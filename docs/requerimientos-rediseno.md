@@ -1,5 +1,7 @@
 # ZenTask — Requerimientos para el rediseño (auditoría, 8 oct 2026)
 
+> **Superado por [docs/rediseno.md](rediseno.md)** (especificación acordada el 8 oct 2026). Se conserva como registro de la auditoría que la originó.
+
 Documento para llevar a un chat de diseño. Recoge lo que pidió Jean, el
 estado actual de la app y las decisiones que hay que tomar antes de
 programar. El resultado del chat de diseño vuelve al chat de desarrollo

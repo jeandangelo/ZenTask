@@ -4,11 +4,11 @@
 App de Jean para gestionar la **toma de decisiones y el cumplimiento de
 objetivos a partir de rutinas**. Es la capa de **Ejecutar** del Segundo
 Cerebro (sistema personal de productividad) y, cuando se construya, también
-la de **Capturar** (el Buzón). La visión completa se va definiendo por
-partes: los diseños llegan como documentos desde chats de diseño y
-arquitectura aparte. Ante ambigüedad, preguntar antes de asumir.
+la de **Capturar** (el Buzón). Los diseños llegan como documentos desde
+chats de diseño y arquitectura aparte. Ante ambigüedad, preguntar antes
+de asumir.
 
-## Modelo conceptual (terminología de la UI)
+## Modelo conceptual ACTUAL (antes del rediseño; la etapa 1 lo reemplaza)
 - **Columnas / listas** (`columns`) = tablero horizontal paginado. Una
   columna cuyo título contiene SHOP o COMPRA es la **SHOPPING LIST**: se
   crea sola y no se puede borrar.
@@ -32,14 +32,30 @@ arquitectura aparte. Ante ambigüedad, preguntar antes de asumir.
 2. Registrar algo toma **menos de 10 segundos**; capturar, **menos de 5**.
 3. Preferir mejorar lo que ya existe antes que programar algo nuevo
    (construir el sistema no debe volverse la procrastinación).
+4. Presupuesto $0 hasta la etapa de IA, donde se revisa ese límite.
 
-## Buzón de captura (diseño en curso, NO implementar todavía)
-Decidido a nivel conceptual: el Buzón vive en ZenTask como una columna
-propia con un input sin campos obligatorios (texto crudo → enter → listo).
-Se vacía cada noche y cada ítem va a un solo destino: tarea de ZenTask,
-lista de deseos, Notion, chat de arquitectura o se borra. El diseño
-funcional se está resolviendo en un chat aparte y llegará como documento.
-**No construirlo antes de recibir ese documento.**
+## Rediseño en curso — docs/rediseno.md manda
+La especificación completa del rediseño está en **docs/rediseno.md**:
+leerla entera antes de tocar código del rediseño. ZenTask deja el tablero
+de columnas y pasa a: entrada única en el Home (Buzón, luego reglas, al
+final IA), barra inferior de 5 pestañas, tres ejes (tipo · cuándo · área),
+rutinas como entidad propia y calendario por horas.
+
+**Etapa actual: 0 (preparación).** Se trabaja por etapas (sección 8) y no
+se empieza una sin que Jean apruebe la anterior probándola en su celular.
+
+Reglas de trabajo del rediseño (sección 2 del documento):
+- Todo SQL se muestra a Jean antes de ejecutarse; nada sin su aprobación.
+- La base es compartida con ZenMoney: ninguna migración toca, renombra ni
+  borra tablas `fin_`.
+- Sin pérdida de datos: se migra, no se borra; respaldo antes de cada
+  migración.
+- Cada cambio de base queda como archivo en `supabase/migrations/`.
+- Entregar archivos completos y comandos exactos para copiar y pegar.
+- Móvil primero (PWA), verificado en la web.
+- Dependencias nuevas solo con justificación: por qué, peso y alternativa.
+- Un commit por paso.
+- Si algo no está decidido en el documento, preguntar a Jean.
 
 ## Arquitectura
 - **Frontend**: Expo SDK 54 / React Native 0.81 / React 19, con soporte
@@ -49,8 +65,8 @@ funcional se está resolviendo en un chat aparte y llegará como documento.
   rutinas, fechas y listas. La comparten el Dashboard, el Calendario y la
   capa de datos.
 - **Componentes** por pantalla en `src/components/<pantalla>/`. El
-  Dashboard ya delega tarjeta, recompensas y modales chicos; el formulario
-  de tarea sigue en la pantalla hasta que se defina el Buzón.
+  Dashboard ya delega tarjeta, recompensas y modales chicos (el tablero
+  completo desaparece en la etapa 1 del rediseño).
 - **Backend**: Supabase. Es la MISMA instancia que ZenMoney (sus tablas
   llevan el prefijo `fin_`). RLS está activo: un cliente anónimo no ve
   filas. Mostrar todo SQL a Jean ANTES de ejecutarlo.
