@@ -40,3 +40,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Respaldos de datos (contienen datos personales: nunca se suben)
+backups/
