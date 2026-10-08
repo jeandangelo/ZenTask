@@ -1,83 +1,74 @@
 import 'react-native-url-polyfill/auto';
-import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Platform, StatusBar, StyleSheet, View, ViewStyle } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Session } from '@supabase/supabase-js';
-import CalendarScreen from './src/screens/CalendarScreen';
+import { useFonts } from 'expo-font';
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
+import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 import { api } from './src/services/api';
-import { notificationService } from './src/services/notifications';
-
+import { colors } from './src/theme/tokens';
+import { ToastProvider } from './src/components/ui/Toast';
+import { TAB_BAR_HEIGHT } from './src/components/ui/TabBar';
+import { ZenStoreProvider } from './src/state/ZenStore';
 import AuthScreen from './src/screens/AuthScreen';
-import DashboardScreen from './src/screens/DashboardScreen';
-import ProfileScreen from './src/screens/ProfileScreen';
-import { Y2K_COLORS } from './src/theme/colors';
+import MainTabs from './src/screens/MainTabs';
 
-const Stack = createNativeStackNavigator();
-
+// Raíz: carga las fuentes, revisa la sesión y muestra login o la app.
 export default function App() {
+  const [fontsLoaded] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold });
   const [session, setSession] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // 1. INICIALIZAR NOTIFICACIONES AL ARRANCAR
-    notificationService.registerForPushNotificationsAsync();
-
-    // 2. VERIFICAR SESIÓN
-    const checkSession = async () => {
-      try {
-        const { data } = await api.auth.getSession();
-        if (data.session) setSession(data.session);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    checkSession();
-
-    const { data: authListener } = api.auth.onAuthStateChange((session) => {
-      setSession(session);
-      setIsLoading(false);
-    });
-
-    return () => authListener.subscription.unsubscribe();
+    api.auth.getSession()
+      .then(setSession)
+      .catch(e => console.error('Error leyendo la sesión:', e))
+      .finally(() => setChecking(false));
+    const sub = api.auth.onAuthStateChange(s => { setSession(s); setChecking(false); });
+    return () => sub.unsubscribe();
   }, []);
 
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Y2K_COLORS.ACID_GREEN} />
-      </View>
-    );
-  }
+  const signOut = useCallback(() => { api.auth.signOut(); }, []);
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {session && session.user ? (
-          <>
-            <Stack.Screen name="Dashboard">
-              {(props) => <DashboardScreen {...props} onLogout={() => api.auth.signOut()} />}
-            </Stack.Screen>
-            <Stack.Screen name="Profile" component={ProfileScreen} />
-            <Stack.Screen name="Calendar" component={CalendarScreen} />
-          </>
+    <SafeAreaProvider>
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
+      <View style={styles.root}>
+        {!fontsLoaded || checking ? (
+          <View style={styles.loading}><ActivityIndicator size="large" color={colors.accent} /></View>
+        ) : session?.user ? (
+          <AppConSesion key={session.user.id} onAuthLost={signOut} />
         ) : (
-          <Stack.Screen name="Auth">
-            {() => <AuthScreen onLoginSuccess={() => {}} />} 
-          </Stack.Screen>
+          <AuthScreen />
         )}
-      </Stack.Navigator>
-    </NavigationContainer>
+      </View>
+    </SafeAreaProvider>
   );
 }
 
+// El aviso (toast) se dibuja justo encima de la barra inferior
+function AppConSesion({ onAuthLost }: { onAuthLost: () => void }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <ToastProvider bottomOffset={TAB_BAR_HEIGHT + insets.bottom}>
+      <ZenStoreProvider onAuthLost={onAuthLost}>
+        <MainTabs />
+      </ZenStoreProvider>
+    </ToastProvider>
+  );
+}
+
+// Solo web: fija el alto al viewport y evita el scroll del body en la PWA.
+// '100vh' es CSS válido pero no existe en los tipos de RN, de ahí el cast.
+const webViewportFill = Platform.select({
+  web: { height: '100vh', overflow: 'hidden' } as unknown as ViewStyle,
+  default: {} as ViewStyle,
+});
+
 const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: Y2K_COLORS.DEEP_BLACK,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  root: { flex: 1, backgroundColor: colors.bg, ...webViewportFill },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

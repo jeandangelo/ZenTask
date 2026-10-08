@@ -1,129 +1,65 @@
 import React, { useState } from 'react';
-import { Text, TextInput, TouchableOpacity, TextStyle, ViewStyle, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Y2K_COLORS, GLOBAL_STYLES } from '../theme/colors';
+import { colors, fonts, space, type } from '../theme/tokens';
 import { api } from '../services/api';
 import { notify } from '../services/dialogs';
+import { Field, Input, PrimaryButton } from '../components/ui/Fields';
 
-interface AuthProps {
-  onLoginSuccess: (user: any) => void;
-}
-
-const AuthScreen = ({ onLoginSuccess }: AuthProps) => {
+// Inicio de sesión y registro. Al entrar, App.tsx se entera solo por
+// onAuthStateChange (el SDK guarda y refresca la sesión).
+export default function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [registro, setRegistro] = useState(false);
 
-  const handleAuth = async () => {
-    if (!email || !password) {
-      notify("Faltan datos", "Ingresa email y contraseña");
+  const enviar = async () => {
+    if (!email.trim() || !password) {
+      notify('Faltan datos', 'Escribe tu correo y contraseña.');
       return;
     }
-
     setLoading(true);
-    try {
-      if (isRegisterMode) {
-        const { error } = await api.auth.signUp(email, password);
-        if (error) throw error;
-        notify("VERIFICACIÓN", "Revisa tu correo y confirma la cuenta.");
-        setIsRegisterMode(false);
-      } else {
-        // El SDK guarda y refresca la sesión solo; App.tsx se entera
-        // vía onAuthStateChange, así que no hace falta setSession manual.
-        const { data, error } = await api.auth.signIn(email, password);
-        if (error) throw error;
-        onLoginSuccess(data.user);
-      }
-
-    } catch (err: any) {
-      console.error("Error API:", err);
-      notify("Error", err.message);
-    } finally {
-      setLoading(false);
+    const { error } = registro
+      ? await api.auth.signUp(email.trim(), password)
+      : await api.auth.signIn(email.trim(), password);
+    setLoading(false);
+    if (error) {
+      notify('No se pudo entrar', error.message);
+    } else if (registro) {
+      notify('Revisa tu correo', 'Te enviamos un enlace para confirmar la cuenta.');
+      setRegistro(false);
     }
-  };
-
-  // --- ESTILOS (Sin cambios) ---
-  const ACID_INPUT: TextStyle = {
-    color: Y2K_COLORS.WHITE,
-    backgroundColor: Y2K_COLORS.DARK_GRAY,
-    borderWidth: 2,
-    borderColor: Y2K_COLORS.BORDER, // Borde oscuro por defecto
-    padding: 18,
-    marginBottom: 15,
-    fontSize: 16,
-    fontWeight: 'bold',
-    borderRadius: 0, // Bordes cuadrados agresivos
-  };
-
-  const ACID_BUTTON: ViewStyle = {
-    backgroundColor: Y2K_COLORS.ACID_GREEN,
-    padding: 18,
-    alignItems: 'center',
-    marginTop: 10,
-    borderWidth: 2,
-    borderColor: Y2K_COLORS.WHITE,
-    shadowColor: '#FFF',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 0,
-    // @ts-ignore
-    cursor: 'pointer',
-  };
-
-  const LINK_TEXT: TextStyle = {
-    color: Y2K_COLORS.LIGHT_GRAY, 
-    textDecorationLine: 'underline', 
-    fontSize: 14,
-    marginTop: 20,
-    // @ts-ignore
-    cursor: 'pointer',
   };
 
   return (
-    <SafeAreaView style={[GLOBAL_STYLES.container, { justifyContent: 'center', alignItems: 'center' }]}>
-      <View style={{ width: '100%', maxWidth: 400 }}>
-        
-        <Text style={GLOBAL_STYLES.appName}>ZenTask</Text>
-        <Text style={GLOBAL_STYLES.subtitle}>
-          {isRegisterMode ? '>> INICIAR PROTOCOLO DE ALTA' : '>> CREDENCIALES DE ACCESO'}
-        </Text>
-
-        <TextInput
-          style={ACID_INPUT}
-          onChangeText={setEmail}
-          value={email}
-          placeholder="CORREO ELECTRÓNICO"
-          placeholderTextColor={Y2K_COLORS.LIGHT_GRAY}
-          autoCapitalize="none"
-        />
-        
-        <TextInput
-          style={ACID_INPUT}
-          onChangeText={setPassword}
-          value={password}
-          secureTextEntry={true}
-          placeholder="CONTRASEÑA"
-          placeholderTextColor={Y2K_COLORS.LIGHT_GRAY}
-          autoCapitalize="none"
-        />
-
-        <TouchableOpacity style={ACID_BUTTON} onPress={handleAuth} disabled={loading}>
-          <Text style={{ color: Y2K_COLORS.DEEP_BLACK, fontWeight: '900', fontSize: 18, letterSpacing: 1 }}>
-            {loading ? 'PROCESANDO...' : (isRegisterMode ? 'REGISTRAR AGENTE' : 'ACCEDER AL SISTEMA')}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={{ alignItems: 'center' }} onPress={() => setIsRegisterMode(!isRegisterMode)}>
-          <Text style={LINK_TEXT}>
-            {isRegisterMode ? '¿Ya tienes ID? Ingresar' : '¿Sin ID? Solicitar Acceso'}
-          </Text>
-        </TouchableOpacity>
-
-      </View>
+    <SafeAreaView style={styles.root}>
+      <KeyboardAvoidingView style={styles.center} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.box}>
+          <Text style={styles.brand}>ZENTASK</Text>
+          <Text style={[type.meta, styles.subtitle]}>{registro ? 'Crea tu cuenta' : 'Inicia sesión para continuar'}</Text>
+          <Field label="Correo">
+            <Input value={email} onChangeText={setEmail} placeholder="tu@correo.com" autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
+          </Field>
+          <Field label="Contraseña">
+            <Input value={password} onChangeText={setPassword} placeholder="••••••••" secureTextEntry autoCapitalize="none" onSubmitEditing={enviar} />
+          </Field>
+          <PrimaryButton label={loading ? 'Un momento…' : registro ? 'Crear cuenta' : 'Entrar'} onPress={enviar} disabled={loading} />
+          <TouchableOpacity onPress={() => setRegistro(r => !r)} style={styles.switch}>
+            <Text style={styles.link}>{registro ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Créala'}</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
-};
+}
 
-export default AuthScreen;
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, justifyContent: 'center', padding: space.xl },
+  box: { width: '100%', maxWidth: 380, alignSelf: 'center' },
+  brand: { fontFamily: fonts.display, fontSize: 34, color: colors.metalLight, letterSpacing: 6, textAlign: 'center' },
+  subtitle: { textAlign: 'center', marginTop: space.sm, marginBottom: space.xxl },
+  switch: { alignItems: 'center', marginTop: space.xl },
+  link: { color: colors.accentLight, fontFamily: fonts.medium, fontSize: 14 },
+});

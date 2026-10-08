@@ -1,44 +1,43 @@
 import { getDaysInMonth } from 'date-fns';
+import { Recurrencia, Rutina } from './types';
 
-export type Recurrence = 'none' | 'daily' | 'weekly' | 'monthly';
-
-export interface RoutineRule {
-  recurrence?: string | null;
-  // weekly: 0 = domingo … 6 = sábado. monthly: día del mes (1-31).
-  recurrence_day?: number | null;
-}
-
-// ¿La rutina corresponde a esta fecha? Única fuente de verdad: la usan el
-// generador de tareas (api.ts), el calendario y el formulario de creación.
-export const routineOccursOn = (routine: RoutineRule, date: Date): boolean => {
-  const day = routine.recurrence_day ?? -1;
-  switch (routine.recurrence) {
-    case 'daily':
+// ¿La rutina corresponde a esta fecha?
+export const routineOccursOn = (
+  rutina: Pick<Rutina, 'recurrencia' | 'dias_semana' | 'dia_mes' | 'pausada_at'>,
+  date: Date,
+): boolean => {
+  if (rutina.pausada_at) return false;
+  switch (rutina.recurrencia) {
+    case 'diaria':
       return true;
-    case 'weekly':
-      return date.getDay() === day;
-    case 'monthly': {
+    case 'semanal':
+      return (rutina.dias_semana ?? []).includes(date.getDay());
+    case 'mensual': {
       // Una rutina del 31 cae el último día en los meses más cortos
       // (30 de abril, 28/29 de febrero); si no, esos meses se saltaba.
-      const lastDay = getDaysInMonth(date);
-      return date.getDate() === Math.min(day, lastDay);
+      if (rutina.dia_mes == null) return false;
+      return date.getDate() === Math.min(rutina.dia_mes, getDaysInMonth(date));
     }
     default:
       return false;
   }
 };
 
-// Día de referencia al crear una rutina hoy: el día de la semana para las
-// semanales y el día del mes para las mensuales.
-export const recurrenceDayFor = (recurrence: Recurrence, date: Date = new Date()): number => {
-  if (recurrence === 'weekly') return date.getDay();
-  if (recurrence === 'monthly') return date.getDate();
-  return 0;
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+// "Todos los días", "Lunes y jueves", "Cada mes, el día 15"
+export const describeRecurrence = (r: Pick<Rutina, 'recurrencia' | 'dias_semana' | 'dia_mes'>): string => {
+  if (r.recurrencia === 'diaria') return 'Todos los días';
+  if (r.recurrencia === 'mensual') return `Cada mes, el día ${r.dia_mes}`;
+  const dias = [...(r.dias_semana ?? [])].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map(d => DIAS[d]);
+  if (dias.length === 0) return 'Semanal';
+  const lista = dias.length === 1 ? dias[0] : `${dias.slice(0, -1).join(', ')} y ${dias[dias.length - 1]}`;
+  return lista.charAt(0).toUpperCase() + lista.slice(1);
 };
 
-export const RECURRENCE_LABELS: Record<Recurrence, string> = {
-  none: 'NUNCA',
-  daily: 'DIARIO',
-  weekly: 'SEMANAL',
-  monthly: 'MENSUAL',
-};
+// Regla de la recurrencia al convertir un ítem en rutina "desde este día"
+export const recurrenceFrom = (recurrencia: Recurrencia, date: Date) => ({
+  recurrencia,
+  dias_semana: recurrencia === 'semanal' ? [date.getDay()] : null,
+  dia_mes: recurrencia === 'mensual' ? date.getDate() : null,
+});
