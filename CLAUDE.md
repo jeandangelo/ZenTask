@@ -41,7 +41,9 @@ de columnas y pasa a: entrada única en el Home (Buzón, luego reglas, al
 final IA), barra inferior de 5 pestañas, tres ejes (tipo · cuándo · área),
 rutinas como entidad propia y calendario por horas.
 
-**Etapa actual: 0 (preparación).** Se trabaja por etapas (sección 8) y no
+**Etapa actual: 1 — SQL en revisión de Jean** (etapa 0 cerrada el 8 oct;
+el arranque en frío quedó postergado por decisión de Jean). Por etapas
+(sección 8): no
 se empieza una sin que Jean apruebe la anterior probándola en su celular.
 
 Reglas de trabajo del rediseño (sección 2 del documento):
