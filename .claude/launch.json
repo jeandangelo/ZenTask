@@ -4,8 +4,27 @@
     {
       "name": "zentask-web",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web", "--port", "8082"],
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8082"
+      ],
       "port": 8082
+    },
+    {
+      "name": "zentask-demo",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8083",
+        "--clear"
+      ],
+      "port": 8083
     }
   ]
 }
