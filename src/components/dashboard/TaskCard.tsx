@@ -11,12 +11,12 @@ interface TaskCardProps {
   parentGoal?: Task | null;
   isProcessing: boolean;
   onEdit: (item: Task) => void;
-  onDelete: (id: string) => void;
+  onOptions: (item: Task) => void;
   onToggle: (item: Task) => void;
 }
 
-// Tarjeta de una tarea u objetivo: tocar = editar, círculo = tachar, ⋯ = borrar.
-export default function TaskCard({ item, parentGoal, isProcessing, onEdit, onDelete, onToggle }: TaskCardProps) {
+// Tarjeta de una tarea u objetivo: tocar = editar, círculo = tachar, ⋯ = menú de opciones.
+export default function TaskCard({ item, parentGoal, isProcessing, onEdit, onOptions, onToggle }: TaskCardProps) {
   let isOverdue = false;
   let dateText = "";
   if (item.due_date && item.status !== 'done') {
@@ -37,7 +37,7 @@ export default function TaskCard({ item, parentGoal, isProcessing, onEdit, onDel
            {isOverdue && <MaterialCommunityIcons name="alert-circle" size={14} color={Y2K_COLORS.ERROR} style={{marginLeft:5}} />}
            {parentGoal && (<View style={styles.linkedBadgeLarge}><MaterialCommunityIcons name="trophy" size={12} color="black" /><Text style={styles.linkedTextLarge}>{parentGoal.title.substring(0, 10)}..</Text></View>)}
         </View>
-        <TouchableOpacity onPress={() => onDelete(item.id)} style={{ padding: 5 }}><MaterialCommunityIcons name="dots-horizontal" size={24} color={Y2K_COLORS.LIGHT_GRAY} /></TouchableOpacity>
+        <TouchableOpacity onPress={() => onOptions(item)} style={{ padding: 5 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><MaterialCommunityIcons name="dots-horizontal" size={24} color={Y2K_COLORS.LIGHT_GRAY} /></TouchableOpacity>
       </View>
       <View style={styles.cardBody}>
         <TouchableOpacity onPress={() => onToggle(item)} disabled={isProcessing} style={styles.checkboxContainer} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>

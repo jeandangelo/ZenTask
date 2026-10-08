@@ -22,7 +22,7 @@ import { Recurrence, RECURRENCE_LABELS, recurrenceDayFor, routineOccursOn } from
 import DateTimePicker from '@react-native-community/datetimepicker';
 import TaskCard from '../components/dashboard/TaskCard';
 import { LevelUpModal, XPFloatingAnim } from '../components/dashboard/Rewards';
-import { ColumnFormModal, CreateSelectorModal, RoutinesModal } from '../components/dashboard/SimpleModals';
+import { ColumnFormModal, CreateSelectorModal, RoutinesModal, TaskOptionsModal } from '../components/dashboard/SimpleModals';
 import { modalStyles } from '../components/dashboard/modalStyles';
 import { ColumnData, Task } from '../components/dashboard/types';
 
@@ -68,6 +68,8 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
   // Formulario simple por defecto (solo título); fecha, rutina, etiqueta,
   // detalles y objetivo quedan detrás de "OPCIONES AVANZADAS".
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Tarjeta cuyo menú ⋯ está abierto
+  const [optionsItem, setOptionsItem] = useState<Task | null>(null);
   
   const [editingItem, setEditingItem] = useState<Task | null>(null);
   const [editingColumn, setEditingColumn] = useState<ColumnData | null>(null);
@@ -313,9 +315,10 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
     }
   };
 
+  // Elegir ELIMINAR en el menú del ⋯ ya es la confirmación (dos pasos
+  // deliberados), así que no se vuelve a preguntar.
   const deleteItem = async (id: string) => {
-    const item = tasks.find(t => t.id === id);
-    if (!(await confirmAction("Eliminar", `¿Eliminar "${item?.title ?? 'este ítem'}"?`))) return;
+    setOptionsItem(null);
     setIsLoading(true); await api.deleteItem(id); await loadData();
   };
 
@@ -374,7 +377,7 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
       parentGoal={item.linkedGoalId ? tasks.find(g => g.id === item.linkedGoalId) : null}
       isProcessing={processingIds.has(item.id)}
       onEdit={startEditItem}
-      onDelete={deleteItem}
+      onOptions={setOptionsItem}
       onToggle={toggleStatus}
     />
   );
@@ -486,6 +489,12 @@ export default function DashboardScreen({ navigation, onLogout }: DashboardProps
         <LevelUpModal visible={showLevelUp} level={currentLevel} onClose={() => setShowLevelUp(false)} />
 
         <CreateSelectorModal visible={selectorVisible} onClose={() => setSelectorVisible(false)} onPick={startCreateItem} />
+        <TaskOptionsModal
+          item={optionsItem}
+          onEdit={(item) => { setOptionsItem(null); startEditItem(item); }}
+          onDelete={(item) => deleteItem(item.id)}
+          onClose={() => setOptionsItem(null)}
+        />
         
         <Modal transparent visible={formVisible} animationType="slide">
           <View style={modalStyles.modalOverlay}>

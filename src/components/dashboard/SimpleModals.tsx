@@ -6,6 +6,7 @@ import { DbItem } from '../../services/api';
 import { Recurrence, RECURRENCE_LABELS } from '../../domain/routines';
 import { modalStyles } from './modalStyles';
 import { cardStyles } from './TaskCard';
+import { Task } from './types';
 
 // Modales chicos del tablero. El formulario de tarea/objetivo sigue en
 // DashboardScreen porque comparte mucho estado con la pantalla.
@@ -25,6 +26,28 @@ export const CreateSelectorModal = ({ visible, onClose, onPick }: {
         <View style={styles.divider} />
         <TouchableOpacity style={styles.selectorOption} onPress={() => onPick('goal')}><MaterialCommunityIcons name="trophy-outline" size={24} color={Y2K_COLORS.ACID_GREEN} /><Text style={[styles.selectorText, {color: Y2K_COLORS.ACID_GREEN}]}>NUEVO OBJETIVO</Text></TouchableOpacity>
       </View>
+    </TouchableOpacity>
+  </Modal>
+);
+
+// Menú del ⋯ de una tarjeta. Por ahora: editar y eliminar; acá se irán
+// sumando acciones (mover de lista, posponer…) cuando se definan.
+export const TaskOptionsModal = ({ item, onEdit, onDelete, onClose }: {
+  item: Task | null;
+  onEdit: (item: Task) => void;
+  onDelete: (item: Task) => void;
+  onClose: () => void;
+}) => (
+  <Modal transparent visible={!!item} animationType="fade">
+    <TouchableOpacity style={modalStyles.modalOverlay} activeOpacity={1} onPress={onClose}>
+      {item && (
+        <View style={styles.selectorBox}>
+          <Text style={styles.optionsTitle} numberOfLines={2}>{item.title}</Text>
+          <TouchableOpacity style={styles.selectorOption} onPress={() => onEdit(item)}><MaterialCommunityIcons name="pencil-outline" size={24} color={Y2K_COLORS.WHITE} /><Text style={styles.selectorText}>EDITAR</Text></TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.selectorOption} onPress={() => onDelete(item)}><MaterialCommunityIcons name="trash-can-outline" size={24} color={Y2K_COLORS.ERROR} /><Text style={[styles.selectorText, {color: Y2K_COLORS.ERROR}]}>ELIMINAR</Text></TouchableOpacity>
+        </View>
+      )}
     </TouchableOpacity>
   </Modal>
 );
@@ -91,5 +114,6 @@ const styles = StyleSheet.create({
   selectorBox: { width: 280, backgroundColor: Y2K_COLORS.DARK_GRAY, borderWidth: 1, borderColor: Y2K_COLORS.ACID_GREEN, padding: 20 },
   selectorOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15 },
   selectorText: { color: Y2K_COLORS.WHITE, marginLeft: 15, fontWeight: 'bold' },
+  optionsTitle: { color: Y2K_COLORS.DIM_GRAY, fontFamily: 'monospace', fontSize: 12, marginBottom: 5 },
   divider: { height: 1, backgroundColor: Y2K_COLORS.GRID_LINE, width: '100%' },
 });
