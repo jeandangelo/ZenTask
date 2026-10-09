@@ -62,9 +62,11 @@ export default function ItemRow({ item, onEdit, onOptions, onReprogramar, showDa
         )}
         <View style={{ flex: 1 }}>
           <Text style={styles.title} numberOfLines={2}>{item.titulo}</Text>
-          {(meta || rutina) ? (
+          {(meta || rutina || item.tipo !== 'tarea') ? (
             <View style={styles.metaRow}>
               {rutina && <MaterialCommunityIcons name="repeat" size={12} color={colors.textMuted} />}
+              {item.tipo === 'compra' && <MaterialCommunityIcons name="cart-outline" size={12} color={colors.textMuted} />}
+              {item.tipo === 'evento' && <MaterialCommunityIcons name="calendar-blank-outline" size={12} color={colors.textMuted} />}
               {meta ? <Text style={[styles.meta, vencida && { color: colors.danger }]} numberOfLines={1}>{meta}</Text> : null}
             </View>
           ) : null}

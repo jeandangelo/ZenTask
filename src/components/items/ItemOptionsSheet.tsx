@@ -42,7 +42,7 @@ export default function ItemOptionsSheet({ item, onClose, onEdit, initialView = 
       {vista === 'menu' && (
         <View>
           <SheetOption icon="pencil-outline" label="Editar" onPress={() => done(() => onEdit(item))} />
-          {!esCompra && <SheetOption icon="calendar-arrow-right" label="Reprogramar" onPress={() => setVista('reprogramar')} />}
+          <SheetOption icon="calendar-arrow-right" label={esCompra && !item.fecha ? 'Ponerle fecha' : 'Reprogramar'} onPress={() => setVista('reprogramar')} />
           <SheetOption icon="shape-outline" label="Cambiar área" onPress={() => setVista('area')} />
           {!esCompra && <SheetOption icon="flag-outline" label="Vincular a objetivo" onPress={() => setVista('objetivo')} />}
           {!esCompra && !item.rutina_id && <SheetOption icon="repeat" label="Convertir en rutina" onPress={() => setVista('rutina')} />}

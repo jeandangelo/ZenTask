@@ -33,7 +33,9 @@ export default function TareasScreen() {
 
   const today = localDayKey();
   const secciones = useMemo<Seccion[]>(() => {
-    const tareas = items.filter(i => i.tipo !== 'compra' && matchesFilter(i, area, query));
+    // Una compra sin fecha es solo una compra; con fecha también hay que
+    // preocuparse por ella, así que aparece aquí (decisión de Jean, 9 oct).
+    const tareas = items.filter(i => (i.tipo !== 'compra' || !!i.fecha) && matchesFilter(i, area, query));
     const grupos = groupBySection(tareas, today);
     // Las entradas no tienen área: con un chip activo no se muestran
     const sinOrdenar = area ? [] : entradas

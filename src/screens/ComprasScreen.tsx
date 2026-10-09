@@ -23,7 +23,8 @@ export default function ComprasScreen() {
 
   const compras = useMemo(
     () => items.filter(i => i.tipo === 'compra' && matchesFilter(i, area, ''))
-      .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+      // Las que tienen fecha límite primero (la más próxima arriba), después el resto
+      .sort((a, b) => (a.fecha ? 0 : 1) - (b.fecha ? 0 : 1) || (a.fecha ?? '').localeCompare(b.fecha ?? '') || a.created_at.localeCompare(b.created_at)),
     [items, area],
   );
 
@@ -60,7 +61,7 @@ export default function ComprasScreen() {
         keyExtractor={i => i.id}
         contentContainerStyle={styles.list}
         ItemSeparatorComponent={() => <View style={{ height: space.sm }} />}
-        renderItem={({ item }) => <ItemRow item={item} showDate={false} onEdit={setEditando} onOptions={setOpciones} />}
+        renderItem={({ item }) => <ItemRow item={item} onEdit={setEditando} onOptions={setOpciones} />}
         ListEmptyComponent={<EmptyState icon="cart-outline" text={area ? 'No hay compras pendientes en esta área.' : 'No hay nada pendiente por comprar.'} />}
       />
 

@@ -79,7 +79,12 @@ export default function ItemFormSheet({ visible, onClose, onSubmit, item, initia
               />
             </Field>
           )}
-          {!esCompra && (
+          {esCompra ? (
+            // Compra con fecha = también aparece en Tareas (decisión de Jean, 9 oct)
+            <Field label="Comprar antes del">
+              <DateField value={f.fecha ?? null} onChange={v => set({ fecha: v })} />
+            </Field>
+          ) : (
             <View style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Field label="Fecha"><DateField value={f.fecha ?? null} onChange={v => set({ fecha: v })} /></Field>
