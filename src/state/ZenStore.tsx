@@ -3,6 +3,7 @@ import { api, isAuthError, Snapshot } from '../services/api';
 import { notify } from '../services/dialogs';
 import { useToast } from '../components/ui/Toast';
 import { localDayKey } from '../domain/dates';
+import { interpretar } from '../domain/rules';
 import { Area, Entrada, Item, ItemInput, Objetivo, Perfil, Recurrencia } from '../domain/types';
 
 // Estado compartido de la app: los datos de la cuenta y todas las acciones.
@@ -126,21 +127,49 @@ const useZenState = (onAuthLost: () => void) => {
   };
 
   // ── Entradas (Home / Buzón) ────────────────────────────────────────────────
-  const capture = async (texto: string) => {
+  // Capturar (etapa 2): la entrada se guarda SIEMPRE primero (que nada se
+  // pierda); después las reglas intentan interpretarla. Si reconocen algo,
+  // crean los ítems y la entrada queda como procesada; si no, queda en
+  // Sin ordenar. Devuelve el resumen de lo creado, o null.
+  const capture = async (texto: string, origen: 'texto' | 'voz' = 'texto'): Promise<{ ok: boolean; resumen: string | null }> => {
+    let entrada: Entrada;
     try {
-      const e = await api.createEntrada(texto);
-      patch(d => ({ entradas: [e, ...d.entradas] }));
-      return true;
+      entrada = await api.createEntrada(texto, origen);
+      patch(d => ({ entradas: [entrada, ...d.entradas] }));
     } catch (e) {
       notify('No se pudo guardar', e instanceof Error ? e.message : String(e));
-      return false;
+      return { ok: false, resumen: null };
+    }
+    const activas = data.areas.filter(a => !a.archivada_at);
+    const interp = interpretar(texto, { areas: activas });
+    if (!interp) return { ok: true, resumen: null };
+    try {
+      const creados: Item[] = [];
+      for (const input of interp.items) creados.push(await api.createItem({ ...input, entrada_id: entrada.id }));
+      patch(d => ({ items: [...d.items, ...creados] }));
+      setEntradaEstado(entrada, 'procesada', interp.reglas.join(','));
+      return { ok: true, resumen: interp.resumen };
+    } catch (e) {
+      // La entrada ya está guardada: queda en Sin ordenar para ordenarla a mano
+      notify('Guardado en Sin ordenar', 'No se pudo crear automáticamente: ' + (e instanceof Error ? e.message : String(e)));
+      return { ok: true, resumen: null };
     }
   };
 
-  const setEntradaEstado = (entrada: Entrada, estado: Entrada['estado']) => {
-    const actualizada = { ...entrada, estado, procesada_at: estado === 'sin_ordenar' ? null : new Date().toISOString() };
+  const setEntradaEstado = (entrada: Entrada, estado: Entrada['estado'], regla: string | null = null) => {
+    const actualizada = { ...entrada, estado, regla, procesada_at: estado === 'sin_ordenar' ? null : new Date().toISOString() };
     patch(d => ({ entradas: d.entradas.map(e => (e.id === entrada.id ? actualizada : e)) }));
-    persist(() => api.setEntradaEstado(entrada.id, estado));
+    persist(() => api.setEntradaEstado(entrada.id, estado, regla));
+  };
+
+  // Deshacer el resultado de una entrada: sus ítems se eliminan (borrado
+  // lógico) y el texto vuelve a Sin ordenar, para no perderlo.
+  const deshacerEntrada = (entrada: Entrada) => {
+    const suyos = data.items.filter(i => i.entrada_id === entrada.id);
+    patch(d => ({ items: d.items.filter(i => i.entrada_id !== entrada.id) }));
+    persist(async () => { for (const it of suyos) await api.deleteItem(it.id); });
+    setEntradaEstado(entrada, 'sin_ordenar');
+    toast({ message: 'Deshecho: quedó en Sin ordenar' });
   };
 
   const descartar = (entrada: Entrada) => {
@@ -216,7 +245,7 @@ const useZenState = (onAuthLost: () => void) => {
   return {
     ...data, loading, reload,
     addItem, editItem, complete, remove, reprogramar, duplicate, convertToRutina,
-    capture, descartar, ordenar,
+    capture, descartar, ordenar, deshacerEntrada,
     createArea, updateArea, moveArea,
     createObjetivo, updateObjetivo, deleteObjetivo,
     updatePerfil,

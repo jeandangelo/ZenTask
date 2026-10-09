@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Platform, StyleSheet, Text, TextInput, TextInputProps, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, TextInputProps, TextStyle, TouchableOpacity, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format, parseISO } from 'date-fns';
@@ -16,19 +16,28 @@ export const Field = ({ label, children }: { label: string; children: React.Reac
   </View>
 );
 
-export const Input = React.forwardRef<TextInput, TextInputProps>((props, ref) => (
-  <TextInput
-    ref={ref}
-    placeholderTextColor={colors.textFaint}
-    {...props}
-    style={[styles.input, props.multiline && { minHeight: 72, textAlignVertical: 'top' }, props.style]}
-  />
-));
+// Solo web: sin el contorno naranjo/azul del navegador; el foco se marca
+// con el borde de acento ('none' no existe en los tipos de RN, de ahí el cast).
+export const webSinContorno = Platform.select({ web: { outlineStyle: 'none' } as unknown as TextStyle, default: {} });
+
+export const Input = React.forwardRef<TextInput, TextInputProps>((props, ref) => {
+  const [foco, setFoco] = useState(false);
+  return (
+    <TextInput
+      ref={ref}
+      placeholderTextColor={colors.textFaint}
+      {...props}
+      onFocus={e => { setFoco(true); props.onFocus?.(e); }}
+      onBlur={e => { setFoco(false); props.onBlur?.(e); }}
+      style={[styles.input, webSinContorno, foco && { borderColor: colors.accent }, props.multiline && { minHeight: 72, textAlignVertical: 'top' }, props.style]}
+    />
+  );
+});
 
 // Estilo de los <input> del navegador (fecha y hora), para que no se vean blancos
 const webInputStyle: React.CSSProperties = {
   backgroundColor: colors.surface, color: colors.text, border: `1px solid ${colors.border}`,
-  borderRadius: radius.sm, padding: '10px 12px', fontSize: 15, fontFamily: 'Inter_400Regular',
+  borderRadius: radius.sm, padding: '10px 12px', fontSize: 15, fontFamily: 'Inter_400Regular', outline: 'none',
   colorScheme: 'dark', width: '100%', boxSizing: 'border-box',
 };
 

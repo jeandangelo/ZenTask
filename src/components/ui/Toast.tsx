@@ -15,8 +15,14 @@ interface ToastOptions {
 const ToastContext = createContext<(o: ToastOptions) => void>(() => {});
 export const useToast = () => useContext(ToastContext);
 
+// Espacio extra bajo el aviso: en Inicio sube por encima del campo de
+// captura para no tapar lo que se está escribiendo.
+const ToastOffsetContext = createContext<(extra: number) => void>(() => {});
+export const useToastOffset = () => useContext(ToastOffsetContext);
+
 export function ToastProvider({ children, bottomOffset = 0 }: { children: React.ReactNode; bottomOffset?: number }) {
   const [toast, setToast] = useState<ToastOptions | null>(null);
+  const [extra, setExtra] = useState(0);
   const opacity = useRef(new Animated.Value(0)).current;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Cada aviso tiene un número: el cierre de uno viejo que termina tarde no
@@ -42,9 +48,10 @@ export function ToastProvider({ children, bottomOffset = 0 }: { children: React.
 
   return (
     <ToastContext.Provider value={show}>
+    <ToastOffsetContext.Provider value={setExtra}>
       {children}
       {toast && (
-        <Animated.View style={[styles.wrap, { bottom: bottomOffset + space.md, opacity, pointerEvents: 'box-none' }]}>
+        <Animated.View style={[styles.wrap, { bottom: bottomOffset + extra + space.md, opacity, pointerEvents: 'box-none' }]}>
           <View style={styles.toast}>
             <Text style={styles.text} numberOfLines={2}>{toast.message}</Text>
             {toast.actionLabel && (
@@ -58,6 +65,7 @@ export function ToastProvider({ children, bottomOffset = 0 }: { children: React.
           </View>
         </Animated.View>
       )}
+    </ToastOffsetContext.Provider>
     </ToastContext.Provider>
   );
 }

@@ -37,7 +37,8 @@ export interface ZenApi {
   reprogramar: (item: Item, fechaNueva: string | null, estabaVencida: boolean) => Promise<void>;
   convertToRutina: (item: Item, recurrencia: Recurrencia) => Promise<Rutina>;
   createEntrada: (texto: string, origen?: 'texto' | 'voz') => Promise<Entrada>;
-  setEntradaEstado: (id: string, estado: EstadoEntrada) => Promise<void>;
+  // regla: qué reglas la interpretaron (etapa 2); null al ordenar a mano o al deshacer
+  setEntradaEstado: (id: string, estado: EstadoEntrada, regla?: string | null) => Promise<void>;
   createArea: (a: Pick<Area, 'nombre' | 'color' | 'orden'>) => Promise<Area>;
   updateArea: (id: string, patch: Partial<Omit<Area, 'id'>>) => Promise<void>;
   createObjetivo: (titulo: string) => Promise<Objetivo>;
@@ -110,7 +111,7 @@ const supabaseApi: ZenApi = {
       supabase.from('areas').select('id,nombre,color,orden,archivada_at').eq('user_id', uid).order('orden'),
       supabase.from('items').select(ITEM_COLS).eq('user_id', uid)
         .not('tipo', 'is', null).is('deleted_at', null).is('completada_at', null),
-      supabase.from('entradas').select('id,texto,origen,estado,created_at,procesada_at').eq('user_id', uid)
+      supabase.from('entradas').select('id,texto,origen,estado,regla,created_at,procesada_at').eq('user_id', uid)
         .order('created_at', { ascending: false }).limit(100),
       supabase.from('objetivos').select('id,titulo,notas,area_id,fecha_meta,completado_at').eq('user_id', uid)
         .is('deleted_at', null).order('created_at'),
@@ -187,11 +188,11 @@ const supabaseApi: ZenApi = {
   createEntrada: async (texto, origen = 'texto') => {
     const uid = await requireUserId();
     return must(await supabase.from('entradas').insert({ user_id: uid, texto, origen })
-      .select('id,texto,origen,estado,created_at,procesada_at').single()) as Entrada;
+      .select('id,texto,origen,estado,regla,created_at,procesada_at').single()) as Entrada;
   },
-  setEntradaEstado: async (id, estado) => {
+  setEntradaEstado: async (id, estado, regla = null) => {
     must(await supabase.from('entradas').update({
-      estado, procesada_at: estado === 'sin_ordenar' ? null : new Date().toISOString(),
+      estado, regla, procesada_at: estado === 'sin_ordenar' ? null : new Date().toISOString(),
     }).eq('id', id));
   },
 

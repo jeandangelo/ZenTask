@@ -49,7 +49,7 @@ const items: (Item & { deleted?: boolean })[] = [
 ];
 
 const entradas: Entrada[] = [
-  { id: uid(), texto: 'idea: widget de captura rápida', origen: 'texto', estado: 'sin_ordenar', created_at: now(), procesada_at: null },
+  { id: uid(), texto: 'idea: widget de captura rápida', origen: 'texto', estado: 'sin_ordenar', regla: null, created_at: now(), procesada_at: null },
 ];
 
 const perfil: Perfil = { id: 'demo', username: 'Demo', avatar_url: null, xp_points: 1680, level: 17 };
@@ -128,14 +128,15 @@ export const demoApi: ZenApi = {
 
   createEntrada: async (texto, origen = 'texto') => {
     await wait();
-    const e: Entrada = { id: uid(), texto, origen, estado: 'sin_ordenar', created_at: now(), procesada_at: null };
+    const e: Entrada = { id: uid(), texto, origen, estado: 'sin_ordenar', regla: null, created_at: now(), procesada_at: null };
     entradas.push(e);
     return e;
   },
-  setEntradaEstado: async (id, estado) => {
+  setEntradaEstado: async (id, estado, regla = null) => {
     await wait();
     const e = entradas.find(x => x.id === id)!;
     e.estado = estado;
+    e.regla = regla;
     e.procesada_at = estado === 'sin_ordenar' ? null : now();
   },
 

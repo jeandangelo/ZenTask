@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../theme/tokens';
 import { useZen } from '../state/ZenStore';
 import TabBar, { TabKey } from '../components/ui/TabBar';
+import { useToastOffset } from '../components/ui/Toast';
 import HomeScreen from './HomeScreen';
 import TareasScreen from './TareasScreen';
 import RutinasScreen from './RutinasScreen';
@@ -17,6 +18,9 @@ export default function MainTabs() {
   const { loading, entradas, items } = useZen();
   const [tab, setTab] = useState<TabKey>('home');
   const [visitadas, setVisitadas] = useState<Set<TabKey>>(new Set(['home']));
+  const setToastOffset = useToastOffset();
+  // En Inicio el aviso sube ~70 px para quedar sobre el campo de captura y no taparlo
+  useEffect(() => { setToastOffset(tab === 'home' ? 70 : 0); }, [tab, setToastOffset]);
 
   const cambiar = (k: TabKey) => {
     setTab(k);

@@ -61,6 +61,7 @@ export interface Entrada {
   texto: string;
   origen: 'texto' | 'voz';
   estado: EstadoEntrada;
+  regla: string | null; // qué reglas la interpretaron (etapa 2); null = ordenada a mano o sin ordenar
   created_at: string;
   procesada_at: string | null;
 }
