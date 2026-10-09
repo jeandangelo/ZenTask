@@ -1,8 +1,8 @@
 import type { Session } from '@supabase/supabase-js';
 import type { Snapshot, ZenApi } from './api';
 import { addDaysKey, localDayKey } from '../domain/dates';
-import { recurrenceFrom, routineOccursOn } from '../domain/routines';
-import { Area, Entrada, Item, Objetivo, Perfil, Rutina } from '../domain/types';
+import { datosOcurrencia, recurrenceFrom, routineOccursOn } from '../domain/routines';
+import { Area, Entrada, Item, ItemPaso, Objetivo, Perfil, Rutina, RutinaPaso } from '../domain/types';
 
 // Implementación en memoria de ZenApi para el modo demo (EXPO_PUBLIC_DEMO=1).
 // Imita las reglas de la base (borrado lógico, XP con nivel que no baja,
@@ -27,8 +27,8 @@ const objetivos: Objetivo[] = [
 ];
 
 const rutinas: Rutina[] = [
-  { id: uid(), titulo: 'Rutina mañana', notas: null, area_id: area('Personal'), recurrencia: 'diaria', dias_semana: null, dia_mes: null, modo_horario: 'sin_hora', hora_inicio: null, marcable: true, objetivo_id: null, pausada_at: null },
-  { id: uid(), titulo: 'Entrenar', notas: null, area_id: area('Entrenamiento'), recurrencia: 'diaria', dias_semana: null, dia_mes: null, modo_horario: 'sin_hora', hora_inicio: null, marcable: true, objetivo_id: objetivos[1].id, pausada_at: null },
+  { id: uid(), titulo: 'Rutina mañana', notas: null, area_id: area('Personal'), recurrencia: 'diaria', dias_semana: null, dia_mes: null, modo_horario: 'sin_hora', hora_inicio: null, duracion_min: null, rango_inicio: null, rango_fin: null, created_at: now(), marcable: true, objetivo_id: null, pausada_at: null },
+  { id: uid(), titulo: 'Entrenar', notas: null, area_id: area('Entrenamiento'), recurrencia: 'diaria', dias_semana: null, dia_mes: null, modo_horario: 'sin_hora', hora_inicio: null, duracion_min: null, rango_inicio: null, rango_fin: null, created_at: now(), marcable: true, objetivo_id: objetivos[1].id, pausada_at: null },
 ];
 
 const item = (p: Partial<Item> & Pick<Item, 'titulo'>): Item & { deleted?: boolean } => ({
@@ -51,6 +51,10 @@ const items: (Item & { deleted?: boolean })[] = [
 const entradas: Entrada[] = [
   { id: uid(), texto: 'idea: widget de captura rápida', origen: 'texto', estado: 'sin_ordenar', regla: null, created_at: now(), procesada_at: null },
 ];
+
+// Checklist (etapa 3)
+const pasos: RutinaPaso[] = [];
+const itemPasos: ItemPaso[] = [];
 
 const perfil: Perfil = { id: 'demo', username: 'Demo', avatar_url: null, xp_points: 1680, level: 17 };
 
@@ -86,6 +90,9 @@ export const demoApi: ZenApi = {
       entradas: [...entradas].sort((a, b) => b.created_at.localeCompare(a.created_at)),
       objetivos: [...objetivos],
       rutinas: [...rutinas],
+      pasos: [...pasos],
+      itemPasos: [...itemPasos],
+      hechasSemana: items.filter(i => i.rutina_id && i.completada_at && !i.deleted).map(i => ({ rutina_id: i.rutina_id!, ocurrencia_fecha: i.ocurrencia_fecha! })),
       perfil: { ...perfil },
     };
   },
@@ -118,12 +125,41 @@ export const demoApi: ZenApi = {
     const dia = it.fecha ?? localDayKey();
     const r: Rutina = {
       id: uid(), titulo: it.titulo, notas: it.notas, area_id: it.area_id, objetivo_id: it.objetivo_id,
-      modo_horario: it.hora_inicio ? 'fija' : 'sin_hora', hora_inicio: it.hora_inicio, marcable: true, pausada_at: null,
+      modo_horario: it.hora_inicio ? 'fija' : 'sin_hora', hora_inicio: it.hora_inicio, duracion_min: it.duracion_min,
+      rango_inicio: null, rango_fin: null, created_at: now(), marcable: true, pausada_at: null,
       ...recurrenceFrom(recurrencia, new Date(dia + 'T12:00:00')),
     };
     rutinas.push(r);
     Object.assign(find(it.id), { rutina_id: r.id, ocurrencia_fecha: dia, fecha: dia });
     return r;
+  },
+
+  // Rutinas (etapa 3): versión simple en memoria
+  createRutina: async (input, ps) => {
+    await wait();
+    const r: Rutina = { id: uid(), pausada_at: null, created_at: now(), ...input };
+    rutinas.push(r);
+    ps.filter(p => p.texto.trim()).forEach((p, orden) => pasos.push({ id: uid(), rutina_id: r.id, texto: p.texto.trim(), orden }));
+  },
+  updateRutina: async (r, input, ps) => {
+    await wait();
+    Object.assign(rutinas.find(x => x.id === r.id)!, input);
+    for (let i = pasos.length - 1; i >= 0; i--) if (pasos[i].rutina_id === r.id) pasos.splice(i, 1);
+    ps.filter(p => p.texto.trim()).forEach((p, orden) => pasos.push({ id: p.id ?? uid(), rutina_id: r.id, texto: p.texto.trim(), orden }));
+    const hoy = localDayKey();
+    for (const it of items) if (it.rutina_id === r.id && (it.ocurrencia_fecha ?? '') >= hoy && !it.completada_at) Object.assign(it, datosOcurrencia({ ...r, ...input }));
+  },
+  setRutinaPausada: async (id, pausada) => { await wait(); rutinas.find(x => x.id === id)!.pausada_at = pausada ? now() : null; },
+  deleteRutina: async id => {
+    await wait();
+    rutinas.splice(rutinas.findIndex(x => x.id === id), 1);
+    for (const it of items) if (it.rutina_id === id && !it.completada_at && (it.ocurrencia_fecha ?? '') >= localDayKey()) it.deleted = true;
+  },
+  setPaso: async (itemId, pasoId, hecho) => {
+    await wait();
+    const i = itemPasos.findIndex(p => p.item_id === itemId && p.paso_id === pasoId);
+    if (hecho && i < 0) itemPasos.push({ item_id: itemId, paso_id: pasoId });
+    if (!hecho && i >= 0) itemPasos.splice(i, 1);
   },
 
   createEntrada: async (texto, origen = 'texto') => {

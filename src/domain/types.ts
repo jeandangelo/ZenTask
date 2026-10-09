@@ -39,6 +39,8 @@ export interface Objetivo {
 
 export type Recurrencia = 'diaria' | 'semanal' | 'mensual';
 
+export type ModoHorario = 'fija' | 'flexible' | 'sin_hora';
+
 export interface Rutina {
   id: string;
   titulo: string;
@@ -47,11 +49,34 @@ export interface Rutina {
   recurrencia: Recurrencia;
   dias_semana: number[] | null; // 0 = domingo … 6 = sábado
   dia_mes: number | null;
-  modo_horario: 'fija' | 'flexible' | 'sin_hora';
+  // fija = bloque a una hora (turno 9–17); flexible = en un rango, "por
+  // planificar" hasta darle hora (entreno 18–22); sin_hora = solo se marca
+  modo_horario: ModoHorario;
   hora_inicio: string | null;
-  marcable: boolean;
+  duracion_min: number | null;
+  rango_inicio: string | null;
+  rango_fin: string | null;
+  marcable: boolean; // false = solo ocupa tiempo: sin check, sin XP, sin cumplimiento
   objetivo_id: string | null;
   pausada_at: string | null;
+  created_at: string;
+}
+
+// Datos editables de una rutina (formulario)
+export type RutinaInput = Omit<Rutina, 'id' | 'pausada_at' | 'created_at'>;
+
+// Paso de la checklist interna de una rutina
+export interface RutinaPaso {
+  id: string;
+  rutina_id: string;
+  texto: string;
+  orden: number;
+}
+
+// Paso marcado en una ocurrencia concreta (un día)
+export interface ItemPaso {
+  item_id: string;
+  paso_id: string;
 }
 
 export type EstadoEntrada = 'sin_ordenar' | 'procesada' | 'descartada';

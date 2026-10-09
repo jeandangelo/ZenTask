@@ -1,10 +1,11 @@
 import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { demoApi } from './demoApi';
+import { addDays } from 'date-fns';
 import { localDayKey } from '../domain/dates';
-import { recurrenceFrom, routineOccursOn } from '../domain/routines';
+import { datosOcurrencia, recurrenceFrom, routineOccursOn } from '../domain/routines';
 import {
-  Area, Entrada, EstadoEntrada, Item, ItemInput, Objetivo, Perfil, Recurrencia, Rutina,
+  Area, Entrada, EstadoEntrada, Item, ItemInput, ItemPaso, Objetivo, Perfil, Recurrencia, Rutina, RutinaInput, RutinaPaso,
 } from '../domain/types';
 
 // Única capa que habla con Supabase: las pantallas no hacen queries directas.
@@ -17,8 +18,14 @@ export interface Snapshot {
   entradas: Entrada[];  // las últimas, más nuevas primero
   objetivos: Objetivo[];
   rutinas: Rutina[];
+  pasos: RutinaPaso[];      // checklist de todas las rutinas
+  itemPasos: ItemPaso[];    // pasos marcados en las ocurrencias pendientes
+  hechasSemana: { rutina_id: string; ocurrencia_fecha: string }[]; // para el cumplimiento semanal
   perfil: Perfil | null;
 }
+
+// Paso de checklist en el formulario: con id si ya existía
+export type PasoInput = { id?: string; texto: string };
 
 export interface ZenApi {
   auth: {
@@ -36,6 +43,13 @@ export interface ZenApi {
   restoreItem: (id: string) => Promise<void>;
   reprogramar: (item: Item, fechaNueva: string | null, estabaVencida: boolean) => Promise<void>;
   convertToRutina: (item: Item, recurrencia: Recurrencia) => Promise<Rutina>;
+  // Rutinas (etapa 3). Después de crear/editar/pausar/eliminar, la app
+  // recarga todo: así las ocurrencias y el cumplimiento quedan exactos.
+  createRutina: (input: RutinaInput, pasos: PasoInput[]) => Promise<void>;
+  updateRutina: (rutina: Rutina, input: RutinaInput, pasos: PasoInput[]) => Promise<void>;
+  setRutinaPausada: (id: string, pausada: boolean) => Promise<void>;
+  deleteRutina: (id: string) => Promise<void>;
+  setPaso: (itemId: string, pasoId: string, hecho: boolean) => Promise<void>;
   createEntrada: (texto: string, origen?: 'texto' | 'voz') => Promise<Entrada>;
   // regla: qué reglas la interpretaron (etapa 2); null al ordenar a mano o al deshacer
   setEntradaEstado: (id: string, estado: EstadoEntrada, regla?: string | null) => Promise<void>;
@@ -69,7 +83,7 @@ const must = <T>(res: { data: T; error: { message: string } | null }): T => {
 };
 
 const ITEM_COLS = 'id,tipo,titulo,notas,area_id,fecha,hora_inicio,duracion_min,objetivo_id,rutina_id,ocurrencia_fecha,entrada_id,completada_at,created_at';
-const RUTINA_COLS = 'id,titulo,notas,area_id,recurrencia,dias_semana,dia_mes,modo_horario,hora_inicio,marcable,objetivo_id,pausada_at';
+const RUTINA_COLS = 'id,titulo,notas,area_id,recurrencia,dias_semana,dia_mes,modo_horario,hora_inicio,duracion_min,rango_inicio,rango_fin,marcable,objetivo_id,pausada_at,created_at';
 
 // Genera (si falta) la ocurrencia de HOY de cada rutina activa. La base
 // tiene una restricción única (rutina_id, ocurrencia_fecha): si otro
@@ -80,19 +94,46 @@ const generateTodayOccurrences = async (userId: string, rutinas: Rutina[]): Prom
   const rows = rutinas.filter(r => routineOccursOn(r, now)).map(r => ({
     user_id: userId,
     tipo: 'tarea',
-    titulo: r.titulo,
-    notas: r.notas,
-    area_id: r.area_id,
-    objetivo_id: r.objetivo_id,
+    ...datosOcurrencia(r),
     rutina_id: r.id,
     ocurrencia_fecha: today,
     fecha: today,
-    hora_inicio: r.modo_horario === 'fija' ? r.hora_inicio : null,
   }));
   if (rows.length === 0) return [];
   return must(await supabase.from('items')
     .upsert(rows, { onConflict: 'rutina_id,ocurrencia_fecha', ignoreDuplicates: true })
     .select(ITEM_COLS)) as Item[];
+};
+
+// "Toda la rutina": las ocurrencias pendientes desde hoy copian los datos
+// nuevos de la rutina. Si hoy ya no le toca (cambió de días o se pausó
+// sin pasar por aquí), la ocurrencia pendiente de hoy se elimina (lógico);
+// si ahora sí le toca y falta, se genera.
+const propagarRutina = async (userId: string, rutina: Rutina) => {
+  const today = localDayKey();
+  must(await supabase.from('items').update(datosOcurrencia(rutina))
+    .eq('rutina_id', rutina.id).gte('ocurrencia_fecha', today)
+    .is('completada_at', null).is('deleted_at', null));
+  if (!routineOccursOn(rutina, new Date())) {
+    must(await supabase.from('items').update({ deleted_at: new Date().toISOString() })
+      .eq('rutina_id', rutina.id).eq('ocurrencia_fecha', today).is('completada_at', null));
+  } else {
+    await generateTodayOccurrences(userId, [rutina]);
+  }
+};
+
+// Guarda la checklist: borra los pasos quitados, actualiza los que siguen
+// (texto y orden) e inserta los nuevos. Las marcas de un paso borrado se
+// van con él (on delete cascade en item_pasos).
+const guardarPasos = async (userId: string, rutinaId: string, pasos: PasoInput[], anteriores: string[]) => {
+  const limpios = pasos.map(p => ({ ...p, texto: p.texto.trim() })).filter(p => p.texto);
+  const siguen = new Set(limpios.filter(p => p.id).map(p => p.id!));
+  const borrar = anteriores.filter(id => !siguen.has(id));
+  if (borrar.length) must(await supabase.from('rutina_pasos').delete().in('id', borrar));
+  for (const [orden, p] of limpios.entries()) {
+    if (p.id) must(await supabase.from('rutina_pasos').update({ texto: p.texto, orden }).eq('id', p.id));
+    else must(await supabase.from('rutina_pasos').insert({ user_id: userId, rutina_id: rutinaId, texto: p.texto, orden }));
+  }
 };
 
 const supabaseApi: ZenApi = {
@@ -107,7 +148,9 @@ const supabaseApi: ZenApi = {
   // Todo en paralelo: una sola espera de red para abrir la app
   loadAll: async () => {
     const uid = await requireUserId();
-    const [areas, items, entradas, objetivos, rutinas, perfil] = await Promise.all([
+    const hoy = new Date();
+    const lunes = localDayKey(addDays(hoy, -((hoy.getDay() + 6) % 7)));
+    const [areas, items, entradas, objetivos, rutinas, pasos, hechas, perfil] = await Promise.all([
       supabase.from('areas').select('id,nombre,color,orden,archivada_at').eq('user_id', uid).order('orden'),
       supabase.from('items').select(ITEM_COLS).eq('user_id', uid)
         .not('tipo', 'is', null).is('deleted_at', null).is('completada_at', null),
@@ -116,17 +159,29 @@ const supabaseApi: ZenApi = {
       supabase.from('objetivos').select('id,titulo,notas,area_id,fecha_meta,completado_at').eq('user_id', uid)
         .is('deleted_at', null).order('created_at'),
       supabase.from('rutinas').select(RUTINA_COLS).eq('user_id', uid).is('deleted_at', null).order('created_at'),
+      supabase.from('rutina_pasos').select('id,rutina_id,texto,orden').eq('user_id', uid).order('orden'),
+      supabase.from('items').select('rutina_id,ocurrencia_fecha').eq('user_id', uid)
+        .not('rutina_id', 'is', null).not('completada_at', 'is', null).is('deleted_at', null).gte('ocurrencia_fecha', lunes),
       supabase.from('profiles').select('id,username,avatar_url,xp_points,level').eq('id', uid).maybeSingle(),
     ]);
     const rutinasData = must(rutinas) as Rutina[];
     const itemsData = must(items) as Item[];
     const nuevas = await generateTodayOccurrences(uid, rutinasData);
+    const todos = [...itemsData, ...nuevas];
+    // Marcas de checklist solo de las ocurrencias pendientes que se muestran
+    const conRutina = todos.filter(i => i.rutina_id).map(i => i.id);
+    const itemPasos = conRutina.length
+      ? must(await supabase.from('item_pasos').select('item_id,paso_id').in('item_id', conRutina)) as ItemPaso[]
+      : [];
     return {
       areas: must(areas) as Area[],
-      items: [...itemsData, ...nuevas],
+      items: todos,
       entradas: must(entradas) as Entrada[],
       objetivos: must(objetivos) as Objetivo[],
       rutinas: rutinasData,
+      pasos: must(pasos) as RutinaPaso[],
+      itemPasos,
+      hechasSemana: must(hechas) as { rutina_id: string; ocurrencia_fecha: string }[],
       perfil: must(perfil) as Perfil | null,
     };
   },
@@ -183,6 +238,50 @@ const supabaseApi: ZenApi = {
     must(await supabase.from('items')
       .update({ rutina_id: rutina.id, ocurrencia_fecha: dia, fecha: dia }).eq('id', item.id));
     return rutina;
+  },
+
+  createRutina: async (input, pasos) => {
+    const uid = await requireUserId();
+    const rutina = must(await supabase.from('rutinas').insert({ user_id: uid, ...input })
+      .select(RUTINA_COLS).single()) as Rutina;
+    await guardarPasos(uid, rutina.id, pasos, []);
+    await generateTodayOccurrences(uid, [rutina]);
+  },
+
+  updateRutina: async (rutina, input, pasos) => {
+    const uid = await requireUserId();
+    const actualizada = must(await supabase.from('rutinas').update(input).eq('id', rutina.id)
+      .select(RUTINA_COLS).single()) as Rutina;
+    const anteriores = (must(await supabase.from('rutina_pasos').select('id').eq('rutina_id', rutina.id)) as { id: string }[]).map(p => p.id);
+    await guardarPasos(uid, rutina.id, pasos, anteriores);
+    await propagarRutina(uid, actualizada);
+  },
+
+  // Pausar no borra la ocurrencia de hoy si ya existe: solo deja de generar
+  setRutinaPausada: async (id, pausada) => {
+    const uid = await requireUserId();
+    const r = must(await supabase.from('rutinas').update({ pausada_at: pausada ? new Date().toISOString() : null })
+      .eq('id', id).select(RUTINA_COLS).single()) as Rutina;
+    if (!pausada) await generateTodayOccurrences(uid, [r]);
+  },
+
+  // Eliminar = borrado lógico de la rutina y de sus ocurrencias pendientes
+  // desde hoy. Las pasadas quedan para el historial.
+  deleteRutina: async id => {
+    const ahora = new Date().toISOString();
+    must(await supabase.from('rutinas').update({ deleted_at: ahora }).eq('id', id));
+    must(await supabase.from('items').update({ deleted_at: ahora })
+      .eq('rutina_id', id).gte('ocurrencia_fecha', localDayKey()).is('completada_at', null));
+  },
+
+  setPaso: async (itemId, pasoId, hecho) => {
+    const uid = await requireUserId();
+    if (hecho) {
+      must(await supabase.from('item_pasos')
+        .upsert({ user_id: uid, item_id: itemId, paso_id: pasoId }, { onConflict: 'item_id,paso_id', ignoreDuplicates: true }));
+    } else {
+      must(await supabase.from('item_pasos').delete().eq('item_id', itemId).eq('paso_id', pasoId));
+    }
   },
 
   createEntrada: async (texto, origen = 'texto') => {

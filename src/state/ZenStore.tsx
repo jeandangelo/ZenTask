@@ -10,7 +10,7 @@ import { Area, Entrada, Item, ItemInput, Objetivo, Perfil, Recurrencia } from '.
 // Patrón "optimista": la pantalla cambia al instante y luego se guarda en
 // la base; si la base falla, se avisa y se recarga desde el servidor.
 
-const EMPTY: Snapshot = { areas: [], items: [], entradas: [], objetivos: [], rutinas: [], perfil: null };
+const EMPTY: Snapshot = { areas: [], items: [], entradas: [], objetivos: [], rutinas: [], pasos: [], itemPasos: [], hechasSemana: [], perfil: null };
 const XP_POR_ITEM = 10;
 
 const useZenState = (onAuthLost: () => void) => {
