@@ -75,7 +75,9 @@ const useZenState = (onAuthLost: () => void) => {
     changeXp(XP_POR_ITEM);
     persist(() => api.setCompleted(item.id, true));
     toast({
-      message: subeNivel ? `¡Subiste a nivel ${Math.floor(xpDespues / 100) + 1}! · +${XP_POR_ITEM} XP` : `Completada · +${XP_POR_ITEM} XP`,
+      message: subeNivel
+        ? `¡Subiste a nivel ${Math.floor(xpDespues / 100) + 1}! · +${XP_POR_ITEM} XP`
+        : `${item.tipo === 'compra' ? 'Comprado' : 'Completada'} · +${XP_POR_ITEM} XP`,
       actionLabel: 'Deshacer',
       onAction: () => {
         upsertItem(item);

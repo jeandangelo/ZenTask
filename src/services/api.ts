@@ -212,8 +212,10 @@ const supabaseApi: ZenApi = {
   updateObjetivo: async (id, patch) => {
     must(await supabase.from('objetivos').update(patch).eq('id', id));
   },
+  // Borrado lógico del objetivo; sus tareas quedan sin objetivo (no se borran)
   deleteObjetivo: async id => {
     must(await supabase.from('objetivos').update({ deleted_at: new Date().toISOString() }).eq('id', id));
+    must(await supabase.from('items').update({ objetivo_id: null }).eq('objetivo_id', id));
   },
 
   updatePerfil: async patch => {
