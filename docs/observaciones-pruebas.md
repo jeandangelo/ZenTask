@@ -25,16 +25,19 @@ evento o compra, pero en realidad es las tres:
 Qué ya permite la base: una entrada puede crear varios ítems
 (`items.entrada_id`), así que no hace falta cambiar el modelo para esto.
 
-Preguntas para el chat de diseño:
-1. Al ordenar a mano (etapa 1), ¿se puede crear más de un ítem desde la
-   misma entrada? Propuesta: después de crear el primero, ofrecer "Crear
-   otro desde esta entrada" en vez de marcarla como ordenada de inmediato.
-2. ¿Las compras pueden tener fecha límite? Hoy el formulario de compra no
-   pide fecha. Con fecha, "zapatos antes del 14 de noviembre" aparecería en
-   Pronto / Vencidas como cualquier pendiente.
-3. ¿Se puede vincular un ítem a un evento ("los zapatos son para el
-   matrimonio")? Sería un vínculo nuevo, parecido al de objetivos.
-4. Reglas (etapa 2): las reglas simples reconocen "comprar" y la fecha, pero
-   no que "matrimonio" es un evento. Separar una frase en compra + evento
-   es trabajo de la IA (etapa 6); las reglas deberían como mínimo crear la
-   compra con su fecha y dejar el resto para ordenar a mano.
+Decisiones de Jean (9 oct 2026):
+- **Compras con fecha — resuelto.** Una compra sin fecha es solo una
+  compra (vive en Compras). Con fecha también hay que preocuparse por ella:
+  aparece además en Tareas (Vencidas / Hoy / Pronto). El formulario de
+  compra pide "Comprar antes del" en opciones avanzadas.
+- **Vincular compras a eventos — no por ahora.** Cada compra se organiza
+  solo por su área (etiqueta).
+- **Reglas (etapa 2) — hecho.** "comprar zapatos para el matrimonio el 14
+  de noviembre" crea UNA compra con fecha 14 de noviembre. Reconocer que
+  "matrimonio" además es un evento queda para la IA (etapa 6).
+
+Pendiente para el chat de diseño:
+- Crear más de un ítem desde la misma entrada al ordenar a mano (por
+  ejemplo, la compra de los zapatos Y el evento del matrimonio desde una
+  sola nota). Jean no lo necesita por ahora; queda para cuando se diseñe
+  la IA, que es la que separaría una frase en varias cosas.

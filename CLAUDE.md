@@ -41,11 +41,13 @@ de columnas y pasa a: entrada única en el Home (Buzón, luego reglas, al
 final IA), barra inferior de 5 pestañas, tres ejes (tipo · cuándo · área),
 rutinas como entidad propia y calendario por horas.
 
-**Etapa actual: 1 — publicada, esperando que Jean la apruebe en su celular.**
+**Etapa actual: 2 (reglas) implementada; Jean prueba etapas 1 y 2 en su celular.**
 El 8 oct Jean ejecutó en Supabase las migraciones 20261009000000 y
 20261009000100 (verificación: todo OK) y se publicó la interfaz nueva.
+PENDIENTE de ejecutar por Jean: 20261009000200 (películas → compras).
 Las columnas viejas siguen en la base (fase "expandir"); se retiran con una
-migración "contraer" recién cuando Jean apruebe la etapa 1. Etapa 0
+migración "contraer" recién cuando Jean apruebe la etapa 1 en su celular.
+Observaciones de Jean al probar: docs/observaciones-pruebas.md. Etapa 0
 cerrada el 8 oct; el arranque en frío quedó postergado por decisión de
 Jean. Por etapas (sección 8): no se empieza una sin que Jean apruebe la
 anterior probándola en su celular.
