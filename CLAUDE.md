@@ -8,7 +8,7 @@ la de **Capturar** (el Buzón). Los diseños llegan como documentos desde
 chats de diseño y arquitectura aparte. Ante ambigüedad, preguntar antes
 de asumir.
 
-## Modelo conceptual ACTUAL (antes del rediseño; la etapa 1 lo reemplaza)
+## Modelo conceptual VIEJO (en producción hasta el cambio de versión de la etapa 1)
 - **Columnas / listas** (`columns`) = tablero horizontal paginado. Una
   columna cuyo título contiene SHOP o COMPRA es la **SHOPPING LIST**: se
   crea sola y no se puede borrar.
@@ -41,10 +41,13 @@ de columnas y pasa a: entrada única en el Home (Buzón, luego reglas, al
 final IA), barra inferior de 5 pestañas, tres ejes (tipo · cuándo · área),
 rutinas como entidad propia y calendario por horas.
 
-**Etapa actual: 1 — SQL en revisión de Jean** (etapa 0 cerrada el 8 oct;
-el arranque en frío quedó postergado por decisión de Jean). Por etapas
-(sección 8): no se empieza una sin que Jean apruebe la anterior
-probándola en su celular.
+**Etapa actual: 1 — interfaz lista en la rama, falta el cambio de versión.**
+SQL aprobado por Jean (8 oct) pero AÚN NO ejecutado: se corre justo antes
+de publicar la versión nueva (si se corre antes, lo que Jean anote en la
+app vieja no pasa al modelo nuevo). Hasta entonces `main` sigue siendo la
+app vieja. Etapa 0 cerrada el 8 oct; el arranque en frío quedó postergado
+por decisión de Jean. Por etapas (sección 8): no se empieza una sin que
+Jean apruebe la anterior probándola en su celular.
 
 Reglas de trabajo del rediseño (sección 2 del documento):
 - Todo SQL se muestra a Jean antes de ejecutarse; nada sin su aprobación.
@@ -63,12 +66,20 @@ Reglas de trabajo del rediseño (sección 2 del documento):
 - **Frontend**: Expo SDK 54 / React Native 0.81 / React 19, con soporte
   web. `src/services/api.ts` es la **única** capa que habla con Supabase;
   las pantallas no hacen queries directas.
-- **Lógica de dominio pura** (sin red ni UI) en `src/domain/`: reglas de
-  rutinas, fechas y listas. La comparten el Dashboard, el Calendario y la
-  capa de datos.
-- **Componentes** por pantalla en `src/components/<pantalla>/`. El
-  Dashboard ya delega tarjeta, recompensas y modales chicos (el tablero
-  completo desaparece en la etapa 1 del rediseño).
+- **Lógica de dominio pura** (sin red ni UI) en `src/domain/`: tipos del
+  modelo, secciones de Tareas, rutinas y fechas.
+- **Interfaz del rediseño**: `src/screens/MainTabs.tsx` (5 pestañas),
+  `src/state/ZenStore.tsx` (datos + acciones optimistas con Deshacer),
+  `src/components/ui/` (piezas genéricas) y `src/components/items/`
+  (fila, formulario y menú de ítems). Colores y fuentes SOLO desde
+  `src/theme/tokens.ts`.
+- **Modo demo**: `EXPO_PUBLIC_DEMO=1` (en un `.env.local`, que no se
+  commitea) cambia `api` por `src/services/demoApi.ts`, con datos de
+  ejemplo en memoria, para probar la interfaz sin cuenta. En la PWA queda
+  apagado. Al agregar algo a `ZenApi`, implementarlo en ambos.
+- **Gestos sin librerías**: `SwipeRow` usa PanResponder. En la web, React
+  Native dispara el onPress de los hijos al soltar un arrastre: usar
+  `wasSwiping` para ignorarlo.
 - **Backend**: Supabase. Es la MISMA instancia que ZenMoney (sus tablas
   llevan el prefijo `fin_`). RLS está activo: un cliente anónimo no ve
   filas. Mostrar todo SQL a Jean ANTES de ejecutarlo.
