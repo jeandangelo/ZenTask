@@ -4,11 +4,13 @@ import { colors, fonts, space } from '../../theme/tokens';
 import { Item, Recurrencia } from '../../domain/types';
 import { addDaysKey, localDayKey, nextWeekendKey } from '../../domain/dates';
 import { useAreas, useZen } from '../../state/ZenStore';
+import { useRutinaUi } from '../../state/RutinaUi';
 import { Sheet, SheetOption } from '../ui/Sheet';
 import { DateField, PrimaryButton } from '../ui/Fields';
 
 // Menú ⋯ de un ítem (decisión 9): Editar · Reprogramar · Cambiar área ·
 // Vincular a objetivo · Convertir en rutina · Duplicar · Eliminar.
+// En una ocurrencia de rutina se suma "Editar rutina" (la rutina completa).
 // Cada submenú se abre dentro de la misma hoja.
 
 type Vista = 'menu' | 'reprogramar' | 'fecha' | 'area' | 'objetivo' | 'rutina';
@@ -21,6 +23,7 @@ export default function ItemOptionsSheet({ item, onClose, onEdit, initialView = 
 }) {
   const zen = useZen();
   const { activas } = useAreas();
+  const { editarRutina } = useRutinaUi();
   const [vista, setVista] = useState<Vista>('menu');
   const [fecha, setFecha] = useState<string | null>(null);
 
@@ -28,6 +31,7 @@ export default function ItemOptionsSheet({ item, onClose, onEdit, initialView = 
   if (!item) return null;
 
   const esCompra = item.tipo === 'compra';
+  const rutina = item.rutina_id ? zen.rutinas.find(r => r.id === item.rutina_id) : undefined;
   const done = (fn: () => void) => { fn(); onClose(); };
   const today = localDayKey();
   const reprogramar = (nueva: string | null) => done(() => zen.reprogramar(item, nueva));
@@ -42,6 +46,7 @@ export default function ItemOptionsSheet({ item, onClose, onEdit, initialView = 
       {vista === 'menu' && (
         <View>
           <SheetOption icon="pencil-outline" label="Editar" onPress={() => done(() => onEdit(item))} />
+          {rutina && <SheetOption icon="repeat" label="Editar rutina" onPress={() => done(() => editarRutina(rutina))} />}
           <SheetOption icon="calendar-arrow-right" label={esCompra && !item.fecha ? 'Ponerle fecha' : 'Reprogramar'} onPress={() => setVista('reprogramar')} />
           <SheetOption icon="shape-outline" label="Cambiar área" onPress={() => setVista('area')} />
           {!esCompra && <SheetOption icon="flag-outline" label="Vincular a objetivo" onPress={() => setVista('objetivo')} />}

@@ -3,6 +3,7 @@ import { SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-nat
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, fonts, radius, space } from '../theme/tokens';
 import { useZen } from '../state/ZenStore';
+import { useRutinaUi } from '../state/RutinaUi';
 import { Entrada, Item } from '../domain/types';
 import { groupBySection, matchesFilter, ORDERED_SECTIONS, SECTION_TITLES, SectionKey } from '../domain/sections';
 import { localDayKey } from '../domain/dates';
@@ -22,7 +23,8 @@ type Fila = { kind: 'item'; item: Item } | { kind: 'entrada'; entrada: Entrada }
 type Seccion = { key: SectionKey | 'sin_ordenar'; title: string; data: Fila[] };
 
 export default function TareasScreen() {
-  const { items, entradas, addItem, editItem } = useZen();
+  const { items, entradas, addItem } = useZen();
+  const { guardarOcurrencia } = useRutinaUi();
   const [area, setArea] = useState<string | null>(null);
   const [buscando, setBuscando] = useState(false);
   const [query, setQuery] = useState('');
@@ -115,7 +117,8 @@ export default function TareasScreen() {
         item={editando}
         title="Editar"
         onClose={() => setEditando(null)}
-        onSubmit={input => { if (editando) editItem(editando, input); setEditando(null); }}
+        // Ocurrencia de rutina de hora fija: pregunta "¿Solo hoy o toda la rutina?"
+        onSubmit={input => { if (editando) guardarOcurrencia(editando, input); setEditando(null); }}
       />
       <ItemOptionsSheet
         item={opciones?.item ?? null}

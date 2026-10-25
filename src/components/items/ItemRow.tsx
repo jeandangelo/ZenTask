@@ -5,6 +5,7 @@ import { colors, fonts, radius, space } from '../../theme/tokens';
 import { Item } from '../../domain/types';
 import { friendlyDay, localDayKey, shortTime } from '../../domain/dates';
 import { useAreas, useZen } from '../../state/ZenStore';
+import { useRutinaUi } from '../../state/RutinaUi';
 import SwipeRow, { wasSwiping } from '../ui/SwipeRow';
 
 // Fila de un ítem: check a la izquierda, tocar = editar, ⋯ = menú.
@@ -16,7 +17,8 @@ export default function ItemRow({ item, onEdit, onOptions, onReprogramar, showDa
   onReprogramar?: (item: Item) => void; // botón rápido (vencidas)
   showDate?: boolean;
 }) {
-  const { complete, remove, rutinas, objetivos } = useZen();
+  const { complete, remove, rutinas, objetivos, pasos, itemPasos } = useZen();
+  const { abrirChecklist } = useRutinaUi();
   const { byId } = useAreas();
   const area = item.area_id ? byId.get(item.area_id) : undefined;
   const rutina = item.rutina_id ? rutinas.find(r => r.id === item.rutina_id) : undefined;
@@ -24,13 +26,22 @@ export default function ItemRow({ item, onEdit, onOptions, onReprogramar, showDa
   const objetivo = item.objetivo_id ? objetivos.find(o => o.id === item.objetivo_id) : undefined;
   const today = localDayKey();
   const vencida = !!item.fecha && item.fecha < today;
+  // Checklist: el círculo abre los pasos en vez de completar de una vez
+  const totalPasos = rutina ? pasos.filter(p => p.rutina_id === rutina.id).length : 0;
+  const pasosHechos = totalPasos ? itemPasos.filter(p => p.item_id === item.id).length : 0;
+  const marcar = () => (totalPasos ? abrirChecklist(item) : complete(item));
+  // Flexible sin hora asignada todavía = "por planificar" (decisión 7)
+  const porPlanificar = rutina?.modo_horario === 'flexible' && !item.hora_inicio
+    ? `por planificar ${shortTime(rutina.rango_inicio)}–${shortTime(rutina.rango_fin)}`
+    : null;
   // Toques que llegan justo después de deslizar no cuentan (ver SwipeRow)
   const lastSwipeAt = useRef(0);
   const tap = (fn: () => void) => () => { if (!wasSwiping(lastSwipeAt)) fn(); };
 
   const meta = [
     showDate && item.fecha ? friendlyDay(item.fecha, today) : null,
-    shortTime(item.hora_inicio),
+    porPlanificar ?? shortTime(item.hora_inicio),
+    totalPasos ? `${pasosHechos}/${totalPasos}` : null,
     area?.nombre,
     objetivo ? `→ ${objetivo.titulo}` : null,
   ].filter(Boolean).join(' · ');
@@ -38,7 +49,7 @@ export default function ItemRow({ item, onEdit, onOptions, onReprogramar, showDa
   return (
     <SwipeRow
       onSwipeLeft={() => remove(item)}
-      onSwipeRight={marcable ? () => complete(item) : undefined}
+      onSwipeRight={marcable ? marcar : undefined}
       rightLabel={item.tipo === 'compra' ? 'Comprado' : 'Completar'}
       lastSwipeAt={lastSwipeAt}
     >
@@ -46,14 +57,14 @@ export default function ItemRow({ item, onEdit, onOptions, onReprogramar, showDa
         <View style={[styles.areaBar, { backgroundColor: area?.color ?? 'transparent' }]} />
         {marcable ? (
           <TouchableOpacity
-            onPress={tap(() => complete(item))}
+            onPress={tap(marcar)}
             style={styles.checkHit}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="checkbox"
             accessibilityLabel={`Completar ${item.titulo}`}
           >
             {/* Rutina = círculo punteado; tarea/compra = círculo sólido (estilo = tipo) */}
-            <View style={[styles.check, rutina && styles.checkRutina]} />
+            <View style={[styles.check, rutina && styles.checkRutina, pasosHechos > 0 && styles.checkParcial]} />
           </TouchableOpacity>
         ) : (
           <View style={styles.checkHit}>
@@ -104,6 +115,7 @@ const styles = StyleSheet.create({
   checkHit: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
   check: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: colors.metal },
   checkRutina: { borderStyle: 'dashed' },
+  checkParcial: { borderColor: colors.accentLight, borderStyle: 'solid' },
   title: { color: colors.text, fontFamily: fonts.medium, fontSize: 15 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   meta: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 12, flexShrink: 1 },

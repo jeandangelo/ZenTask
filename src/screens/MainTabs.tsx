@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../theme/tokens';
 import { useZen } from '../state/ZenStore';
+import { RutinaUiProvider } from '../state/RutinaUi';
 import TabBar, { TabKey } from '../components/ui/TabBar';
 import { useToastOffset } from '../components/ui/Toast';
 import HomeScreen from './HomeScreen';
@@ -36,6 +37,7 @@ export default function MainTabs() {
   };
 
   return (
+    <RutinaUiProvider>
     <View style={styles.root}>
       <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1 }}>
         {loading ? (
@@ -48,6 +50,7 @@ export default function MainTabs() {
       </SafeAreaView>
       <TabBar active={tab} onChange={cambiar} badges={{ tareas: sinOrdenar, compras }} />
     </View>
+    </RutinaUiProvider>
   );
 }
 

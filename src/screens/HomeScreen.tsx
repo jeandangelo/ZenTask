@@ -5,6 +5,7 @@ import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { colors, fonts, radius, space, type } from '../theme/tokens';
 import { useAreas, useZen } from '../state/ZenStore';
+import { useRutinaUi } from '../state/RutinaUi';
 import { Entrada, Item } from '../domain/types';
 import { dayKeyOf, friendlyDay, shortTime } from '../domain/dates';
 import { useToast } from '../components/ui/Toast';
@@ -12,9 +13,10 @@ import { EmptyState } from '../components/ui/ScreenHeader';
 import MicButton from '../components/ui/MicButton';
 import { webSinContorno } from '../components/ui/Fields';
 import EntradaSheet from '../components/items/EntradaSheet';
+import LoProximo from '../components/items/LoProximo';
 import ItemFormSheet from '../components/items/ItemFormSheet';
 
-// Home (decisión 4): un solo campo para capturar + historial. Etapa 2: las
+// Home (decisión 4): franja "Lo próximo" + un solo campo para capturar + historial. Etapa 2: las
 // reglas interpretan lo escrito ("comprar…", fechas, horas, áreas) y cada
 // entrada muestra una tarjeta con lo que se creó, que se puede editar o
 // deshacer. Lo que no se reconoce queda en Sin ordenar.
@@ -30,7 +32,8 @@ const ICONO: Record<Item['tipo'], React.ComponentProps<typeof MaterialCommunityI
 };
 
 export default function HomeScreen() {
-  const { entradas, items, capture, deshacerEntrada, editItem, perfil } = useZen();
+  const { entradas, items, capture, deshacerEntrada, perfil } = useZen();
+  const { guardarOcurrencia } = useRutinaUi();
   const { byId } = useAreas();
   const toast = useToast();
   const [texto, setTexto] = useState('');
@@ -62,6 +65,7 @@ export default function HomeScreen() {
         <Text style={styles.brand}>ZENTASK</Text>
         <Text style={type.meta}>{hoy.charAt(0).toUpperCase() + hoy.slice(1)}{perfil ? ` · Nivel ${perfil.level}` : ''}</Text>
       </View>
+      <LoProximo onEdit={setEditando} />
 
       {/* Historial: lo más nuevo abajo, junto al campo (como un chat) */}
       <FlatList
@@ -151,7 +155,8 @@ export default function HomeScreen() {
         item={editando}
         title="Editar"
         onClose={() => setEditando(null)}
-        onSubmit={input => { if (editando) editItem(editando, input); setEditando(null); }}
+        // Ocurrencia de rutina de hora fija: pregunta "¿Solo hoy o toda la rutina?"
+        onSubmit={input => { if (editando) guardarOcurrencia(editando, input); setEditando(null); }}
       />
     </KeyboardAvoidingView>
   );
