@@ -2,7 +2,8 @@ import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { demoApi } from './demoApi';
 import { addDays } from 'date-fns';
-import { localDayKey } from '../domain/dates';
+import { addDaysKey as addDaysKeyApi, localDayKey } from '../domain/dates';
+import { INICIO_PROGRESO } from '../domain/progress';
 import { datosOcurrencia, recurrenceFrom, routineOccursOn } from '../domain/routines';
 import {
   Area, Entrada, EstadoEntrada, Item, ItemInput, ItemPaso, Objetivo, Perfil, Recurrencia, Rutina, RutinaInput, RutinaPaso,
@@ -22,6 +23,14 @@ export interface Snapshot {
   itemPasos: ItemPaso[];    // pasos marcados en las ocurrencias pendientes
   hechasSemana: { rutina_id: string; ocurrencia_fecha: string }[]; // para el cumplimiento semanal
   perfil: Perfil | null;
+}
+
+// Datos de Progreso (etapa 5). Se cargan aparte, al abrir Perfil: no hacen
+// falta para usar la app y traen historia (no solo lo pendiente).
+export interface ProgresoData {
+  completadas: { completada_at: string; rutina_id: string | null; ocurrencia_fecha: string | null }[]; // desde el inicio del progreso
+  vinculadas: { objetivo_id: string; completada_at: string | null; rutina_id: string | null }[];       // todas las de algún objetivo
+  reprogramaciones: { item_id: string; fecha_anterior: string | null }[];                             // las que se movieron estando vencidas
 }
 
 // Paso de checklist en el formulario: con id si ya existía
@@ -59,6 +68,7 @@ export interface ZenApi {
   updateObjetivo: (id: string, patch: Partial<Pick<Objetivo, 'titulo' | 'notas' | 'area_id'>>) => Promise<void>;
   deleteObjetivo: (id: string) => Promise<void>;
   updatePerfil: (patch: Partial<Pick<Perfil, 'username' | 'avatar_url'>>) => Promise<void>;
+  loadProgreso: () => Promise<ProgresoData>;
 }
 
 // Mensaje único para "no hay sesión": las pantallas lo detectan con
@@ -316,6 +326,25 @@ const supabaseApi: ZenApi = {
   deleteObjetivo: async id => {
     must(await supabase.from('objetivos').update({ deleted_at: new Date().toISOString() }).eq('id', id));
     must(await supabase.from('items').update({ objetivo_id: null }).eq('objetivo_id', id));
+  },
+
+  loadProgreso: async () => {
+    const uid = await requireUserId();
+    // Un día de margen antes del inicio: el corte fino se hace por día local en domain/progress
+    const desde = `${addDaysKeyApi(INICIO_PROGRESO, -1)}T00:00:00Z`;
+    const [completadas, vinculadas, reprog] = await Promise.all([
+      supabase.from('items').select('completada_at,rutina_id,ocurrencia_fecha').eq('user_id', uid)
+        .not('tipo', 'is', null).is('deleted_at', null).gte('completada_at', desde),
+      supabase.from('items').select('objetivo_id,completada_at,rutina_id').eq('user_id', uid)
+        .not('objetivo_id', 'is', null).is('deleted_at', null),
+      supabase.from('reprogramaciones').select('item_id,fecha_anterior').eq('user_id', uid)
+        .eq('estaba_vencida', true).gte('created_at', desde),
+    ]);
+    return {
+      completadas: must(completadas) as ProgresoData['completadas'],
+      vinculadas: must(vinculadas) as ProgresoData['vinculadas'],
+      reprogramaciones: must(reprog) as ProgresoData['reprogramaciones'],
+    };
   },
 
   updatePerfil: async patch => {

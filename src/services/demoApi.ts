@@ -2,6 +2,7 @@ import type { Session } from '@supabase/supabase-js';
 import type { Snapshot, ZenApi } from './api';
 import { addDaysKey, localDayKey } from '../domain/dates';
 import { datosOcurrencia, recurrenceFrom, routineOccursOn } from '../domain/routines';
+import { INICIO_PROGRESO } from '../domain/progress';
 import { Area, Entrada, Item, ItemPaso, Objetivo, Perfil, Rutina, RutinaPaso } from '../domain/types';
 
 // Implementación en memoria de ZenApi para el modo demo (EXPO_PUBLIC_DEMO=1).
@@ -67,6 +68,16 @@ const entradas: Entrada[] = [
 // Checklist (etapa 3)
 const pasos: RutinaPaso[] = ['Tender la cama', 'Ducha', 'Desayuno'].map((texto, orden) => ({ id: uid(), rutina_id: rutinas[0].id, texto, orden }));
 const itemPasos: ItemPaso[] = [];
+
+// Historia de ejemplo (Progreso): tareas y rutinas completadas por día,
+// desde el inicio del progreso hasta ayer, con un patrón fijo (no aleatorio)
+const historial: { completada_at: string; rutina_id: string | null; ocurrencia_fecha: string | null }[] = [];
+for (let d = INICIO_PROGRESO, i = 0; d < today; d = addDaysKey(d, 1), i++) {
+  const t = `${d}T15:00:00Z`;
+  for (let k = 0; k < (i % 4) + 1; k++) historial.push({ completada_at: t, rutina_id: null, ocurrencia_fecha: null });
+  if (i % 3 !== 2) historial.push({ completada_at: t, rutina_id: rutinas[0].id, ocurrencia_fecha: d });
+  if (i % 2 === 0) historial.push({ completada_at: t, rutina_id: rutinas[1].id, ocurrencia_fecha: d });
+}
 
 const perfil: Perfil = { id: 'demo', username: 'Demo', avatar_url: null, xp_points: 1680, level: 17 };
 
@@ -213,4 +224,19 @@ export const demoApi: ZenApi = {
   },
 
   updatePerfil: async patch => { await wait(); Object.assign(perfil, patch); },
+
+  // Historia inventada desde el inicio del progreso, para ver los gráficos
+  loadProgreso: async () => {
+    await wait();
+    const hechas = items.filter(i => i.completada_at && !i.deleted);
+    return {
+      completadas: [...historial, ...hechas.map(i => ({ completada_at: i.completada_at!, rutina_id: i.rutina_id, ocurrencia_fecha: i.ocurrencia_fecha }))],
+      vinculadas: [
+        ...items.filter(i => i.objetivo_id && !i.deleted).map(i => ({ objetivo_id: i.objetivo_id!, completada_at: i.completada_at, rutina_id: i.rutina_id })),
+        { objetivo_id: objetivos[0].id, completada_at: now(), rutina_id: null },
+        { objetivo_id: objetivos[0].id, completada_at: now(), rutina_id: null },
+      ],
+      reprogramaciones: [{ item_id: 'demo-vencida', fecha_anterior: addDaysKey(today, -9) }],
+    };
+  },
 };
