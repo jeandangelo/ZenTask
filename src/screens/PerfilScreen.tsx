@@ -1,23 +1,32 @@
 import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { AREA_COLORS, colors, fonts, radius, space, type } from '../theme/tokens';
+import { AREA_COLORS, chart, colors, fonts, radius, space, type } from '../theme/tokens';
 import { useZen } from '../state/ZenStore';
-import { api, IS_DEMO } from '../services/api';
-import { confirmAction } from '../services/dialogs';
+import { api, IS_DEMO, ProgresoData } from '../services/api';
+import { confirmAction, notify } from '../services/dialogs';
 import { Area, Objetivo } from '../domain/types';
 import ScreenHeader, { SectionLabel } from '../components/ui/ScreenHeader';
 import { Sheet, SheetOption } from '../components/ui/Sheet';
 import { Field, Input, PrimaryButton } from '../components/ui/Fields';
+import SeccionProgreso from '../components/progreso/SeccionProgreso';
+import { avanceObjetivo } from '../domain/progress';
 
-// Perfil (decisión 8): cuenta, avatar, XP y nivel, gestión de áreas y de
-// objetivos. Los gráficos de Progreso llegan en la etapa 5.
+// Perfil (decisión 8): cuenta, XP y nivel; Progreso (etapa 5): tareas por
+// semana y cumplimiento de rutinas; objetivos con su avance; y la gestión
+// de áreas al final (es configuración, se toca menos).
 
 const XP_POR_NIVEL = 100;
 
-export default function PerfilScreen() {
+export default function PerfilScreen({ activo }: { activo: boolean }) {
   const zen = useZen();
-  const { perfil, areas, objetivos, items } = zen;
+  const { perfil, areas, objetivos, items, rutinas } = zen;
+  // Progreso se carga cada vez que se abre la pestaña (trae historia)
+  const [progreso, setProgreso] = useState<ProgresoData | null>(null);
+  useEffect(() => {
+    if (!activo) return;
+    api.loadProgreso().then(setProgreso).catch(e => notify('No se pudo cargar el progreso', e instanceof Error ? e.message : String(e)));
+  }, [activo]);
   const [editPerfil, setEditPerfil] = useState(false);
   const [areaSheet, setAreaSheet] = useState<Area | 'nueva' | null>(null);
   const [objSheet, setObjSheet] = useState<Objetivo | 'nuevo' | null>(null);
@@ -27,7 +36,8 @@ export default function PerfilScreen() {
   const archivadas = areas.filter(a => a.archivada_at);
   const xp = perfil?.xp_points ?? 0;
   const enNivel = ((xp % XP_POR_NIVEL) + XP_POR_NIVEL) % XP_POR_NIVEL;
-  const pendientesDe = (o: Objetivo) => items.filter(i => i.objetivo_id === o.id).length;
+  const pendientesDe = (o: Objetivo) => items.filter(i => i.objetivo_id === o.id && !i.rutina_id).length;
+  const avanceDe = (o: Objetivo) => (progreso ? avanceObjetivo(progreso.vinculadas.filter(v => v.objetivo_id === o.id)) : null);
 
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
@@ -49,6 +59,35 @@ export default function PerfilScreen() {
         </View>
         <MaterialCommunityIcons name="pencil-outline" size={18} color={colors.textMuted} />
       </TouchableOpacity>
+
+      <SeccionProgreso datos={progreso} pendientes={items} rutinas={rutinas} />
+
+      {/* Objetivos */}
+      <SectionLabel title="Objetivos" count={objetivos.length} />
+      <View style={styles.bloque}>
+        {objetivos.map((o, i) => (
+          <TouchableOpacity key={o.id} style={[styles.fila, i > 0 && styles.filaBorde]} onPress={() => setObjSheet(o)}>
+            <MaterialCommunityIcons name="flag-outline" size={18} color={colors.metal} />
+            <View style={{ flex: 1, gap: 4, paddingVertical: space.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}>
+                <Text style={styles.filaText}>{o.titulo}</Text>
+                {avanceDe(o)?.total
+                  ? <Text style={type.meta}>{avanceDe(o)!.hechas}/{avanceDe(o)!.total} · {avanceDe(o)!.pct}%</Text>
+                  : <Text style={type.meta}>{pendientesDe(o)} pendiente{pendientesDe(o) === 1 ? '' : 's'}</Text>}
+              </View>
+              {!!avanceDe(o)?.total && (
+                <View style={styles.pista} accessibilityLabel={`Avance ${avanceDe(o)!.pct}%`}>
+                  <View style={[styles.relleno, { width: `${avanceDe(o)!.pct}%` }]} />
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={[styles.fila, objetivos.length > 0 && styles.filaBorde]} onPress={() => setObjSheet('nuevo')}>
+          <MaterialCommunityIcons name="plus" size={18} color={colors.accentLight} />
+          <Text style={[styles.filaText, { color: colors.accentLight }]}>Nuevo objetivo</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Áreas */}
       <SectionLabel title="Áreas" count={activas.length} />
@@ -86,22 +125,6 @@ export default function PerfilScreen() {
           </TouchableOpacity>
         </View>
       ))}
-
-      {/* Objetivos */}
-      <SectionLabel title="Objetivos" count={objetivos.length} />
-      <View style={styles.bloque}>
-        {objetivos.map((o, i) => (
-          <TouchableOpacity key={o.id} style={[styles.fila, i > 0 && styles.filaBorde]} onPress={() => setObjSheet(o)}>
-            <MaterialCommunityIcons name="flag-outline" size={18} color={colors.metal} />
-            <Text style={styles.filaText}>{o.titulo}</Text>
-            <Text style={type.meta}>{pendientesDe(o)} pendiente{pendientesDe(o) === 1 ? '' : 's'}</Text>
-          </TouchableOpacity>
-        ))}
-        <TouchableOpacity style={[styles.fila, objetivos.length > 0 && styles.filaBorde]} onPress={() => setObjSheet('nuevo')}>
-          <MaterialCommunityIcons name="plus" size={18} color={colors.accentLight} />
-          <Text style={[styles.filaText, { color: colors.accentLight }]}>Nuevo objetivo</Text>
-        </TouchableOpacity>
-      </View>
 
       <TouchableOpacity style={styles.salir} onPress={() => api.auth.signOut()}>
         <Text style={styles.salirText}>Cerrar sesión</Text>
@@ -233,6 +256,8 @@ const styles = StyleSheet.create({
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
   swatch: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: 'transparent' },
   swatchActive: { borderColor: colors.text },
+  pista: { height: 5, borderRadius: 3, backgroundColor: chart.pista, overflow: 'hidden' },
+  relleno: { height: '100%', borderRadius: 3, backgroundColor: chart.completadas },
   salir: { marginHorizontal: space.lg, marginTop: space.xxl, padding: space.md, alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   salirText: { color: colors.danger, fontFamily: fonts.semibold, fontSize: 15 },
 });

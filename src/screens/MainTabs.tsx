@@ -33,7 +33,7 @@ export default function MainTabs() {
 
   const pantallas: Record<TabKey, React.ReactNode> = {
     home: <HomeScreen />, tareas: <TareasScreen />, rutinas: <RutinasScreen />,
-    compras: <ComprasScreen />, perfil: <PerfilScreen />,
+    compras: <ComprasScreen />, perfil: <PerfilScreen activo={tab === 'perfil'} />,
   };
 
   return (
