@@ -41,15 +41,20 @@ de columnas y pasa a: entrada única en el Home (Buzón, luego reglas, al
 final IA), barra inferior de 5 pestañas, tres ejes (tipo · cuándo · área),
 rutinas como entidad propia y calendario por horas.
 
-**Etapas 1-4 publicadas (25 oct).** Jean usó las etapas 1 y 2 en el día a
-día y dijo que "todo bien" (25 oct); pidió avanzar con rutinas (etapa 3) y
-calendario (etapa 4), que se publicaron el mismo día y esperan su prueba en
-el celular. Siguiente: etapa 5 (Progreso) y la migración "contraer".
+**Etapas 1-5 publicadas (25 oct).** Jean usó las etapas 1 y 2 en el día a
+día y dijo que "todo bien" (25 oct); las etapas 3 (rutinas), 4 (calendario)
+y 5 (Progreso) se publicaron el mismo día y esperan su prueba en el
+celular. Jean aprobó la decisión de proyectar solo rutinas de hora fija.
+PENDIENTE de ejecutar por Jean: 20261025000000_contraer_modelo_viejo.sql
+(quita columnas viejas de items, la tabla columns y toggle_task_status /
+add_xp; probada en PGlite contra el respaldo). Después de correrla, borrar
+de este archivo la sección "Modelo conceptual VIEJO". Siguiente: etapa 6
+(IA), que empieza por decidir el costo mensual aceptable.
 Migraciones ejecutadas por Jean: 20261009000000, 20261009000100 (8 oct) y
 20261009000200 (películas → compras, 9 oct). Las columnas viejas siguen en
 la base (fase "expandir"); la migración "contraer" se muestra a Jean antes.
-Decisión propia a validar: el calendario proyecta en días futuros solo las
-rutinas de hora fija (día y semana); la vista mes no muestra rutinas.
+El calendario proyecta en días futuros solo las rutinas de hora fija (día y
+semana); la vista mes no muestra rutinas (aprobado por Jean, 25 oct).
 Observaciones de Jean al probar: docs/observaciones-pruebas.md. Etapa 0
 cerrada el 8 oct; el arranque en frío quedó postergado por decisión de
 Jean. Por etapas (sección 8): no se empieza una sin que Jean apruebe la
