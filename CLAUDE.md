@@ -41,12 +41,15 @@ de columnas y pasa a: entrada única en el Home (Buzón, luego reglas, al
 final IA), barra inferior de 5 pestañas, tres ejes (tipo · cuándo · área),
 rutinas como entidad propia y calendario por horas.
 
-**Etapa actual: 2 (reglas) implementada; Jean prueba etapas 1 y 2 en su celular.**
-El 8 oct Jean ejecutó en Supabase las migraciones 20261009000000 y
-20261009000100 (verificación: todo OK) y se publicó la interfaz nueva.
-PENDIENTE de ejecutar por Jean: 20261009000200 (películas → compras).
-Las columnas viejas siguen en la base (fase "expandir"); se retiran con una
-migración "contraer" recién cuando Jean apruebe la etapa 1 en su celular.
+**Etapas 1-4 publicadas (25 oct).** Jean usó las etapas 1 y 2 en el día a
+día y dijo que "todo bien" (25 oct); pidió avanzar con rutinas (etapa 3) y
+calendario (etapa 4), que se publicaron el mismo día y esperan su prueba en
+el celular. Siguiente: etapa 5 (Progreso) y la migración "contraer".
+Migraciones ejecutadas por Jean: 20261009000000, 20261009000100 (8 oct) y
+20261009000200 (películas → compras, 9 oct). Las columnas viejas siguen en
+la base (fase "expandir"); la migración "contraer" se muestra a Jean antes.
+Decisión propia a validar: el calendario proyecta en días futuros solo las
+rutinas de hora fija (día y semana); la vista mes no muestra rutinas.
 Observaciones de Jean al probar: docs/observaciones-pruebas.md. Etapa 0
 cerrada el 8 oct; el arranque en frío quedó postergado por decisión de
 Jean. Por etapas (sección 8): no se empieza una sin que Jean apruebe la
