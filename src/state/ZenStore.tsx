@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api, isAuthError, Snapshot } from '../services/api';
+import { api, isAuthError, PasoInput, Snapshot } from '../services/api';
 import { notify } from '../services/dialogs';
 import { useToast } from '../components/ui/Toast';
 import { localDayKey } from '../domain/dates';
 import { interpretar } from '../domain/rules';
-import { Area, Entrada, Item, ItemInput, Objetivo, Perfil, Recurrencia } from '../domain/types';
+import { Area, Entrada, Item, ItemInput, Objetivo, Perfil, Recurrencia, Rutina, RutinaInput } from '../domain/types';
 
 // Estado compartido de la app: los datos de la cuenta y todas las acciones.
 // Patrón "optimista": la pantalla cambia al instante y luego se guarda en
@@ -74,6 +74,7 @@ const useZenState = (onAuthLost: () => void) => {
     const subeNivel = Math.floor(xpDespues / 100) + 1 > nivelAntes;
     dropItem(item.id);
     changeXp(XP_POR_ITEM);
+    marcarHechaSemana(item, true);
     persist(() => api.setCompleted(item.id, true));
     toast({
       message: subeNivel
@@ -83,9 +84,21 @@ const useZenState = (onAuthLost: () => void) => {
       onAction: () => {
         upsertItem(item);
         changeXp(-XP_POR_ITEM);
+        marcarHechaSemana(item, false);
         persist(() => api.setCompleted(item.id, false));
       },
     });
+  };
+
+  // Cumplimiento semanal al instante (la base lo recalcula al recargar)
+  const marcarHechaSemana = (item: Item, hecha: boolean) => {
+    if (!item.rutina_id || !item.ocurrencia_fecha) return;
+    const clave = { rutina_id: item.rutina_id, ocurrencia_fecha: item.ocurrencia_fecha };
+    patch(d => ({
+      hechasSemana: hecha
+        ? [...d.hechasSemana, clave]
+        : d.hechasSemana.filter(h => !(h.rutina_id === clave.rutina_id && h.ocurrencia_fecha === clave.ocurrencia_fecha)),
+    }));
   };
 
   // Eliminar: borrado lógico, sin confirmación, con Deshacer
@@ -124,6 +137,74 @@ const useZenState = (onAuthLost: () => void) => {
     } catch (e) {
       notify('No se pudo convertir', e instanceof Error ? e.message : String(e));
     }
+  };
+
+  // ── Rutinas (etapa 3) ──────────────────────────────────────────────────────
+  // Crear, editar, pausar y eliminar recargan todo desde la base al terminar:
+  // así la ocurrencia de hoy, la checklist y el cumplimiento quedan exactos.
+  const conRecarga = async (op: () => Promise<unknown>, ok: string, error: string) => {
+    try {
+      await op();
+      await reload();
+      toast({ message: ok });
+      return true;
+    } catch (e) {
+      notify(error, e instanceof Error ? e.message : String(e));
+      return false;
+    }
+  };
+
+  const createRutina = (input: RutinaInput, pasos: PasoInput[]) =>
+    conRecarga(() => api.createRutina(input, pasos), 'Rutina creada', 'No se pudo crear la rutina');
+  const updateRutina = (r: Rutina, input: RutinaInput, pasos: PasoInput[]) =>
+    conRecarga(() => api.updateRutina(r, input, pasos), 'Rutina actualizada', 'No se pudo guardar la rutina');
+  const setRutinaPausada = (r: Rutina, pausada: boolean) =>
+    conRecarga(() => api.setRutinaPausada(r.id, pausada), pausada ? 'Rutina pausada' : 'Rutina reanudada', 'No se pudo cambiar la rutina');
+  const deleteRutina = (r: Rutina) =>
+    conRecarga(() => api.deleteRutina(r.id), 'Rutina eliminada', 'No se pudo eliminar la rutina');
+
+  // "Toda la rutina" desde una ocurrencia: primero se guarda la ocurrencia
+  // (incluida una fecha nueva, que es solo de ese día) y después la rutina,
+  // que copia título, notas, área, objetivo y horario a las próximas.
+  const editarRutinaDesdeOcurrencia = async (item: Item, changes: ItemInput) => {
+    const r = data.rutinas.find(x => x.id === item.rutina_id);
+    if (!r) return editItem(item, changes);
+    upsertItem({ ...item, ...changes } as Item);
+    try {
+      await api.updateItem(item.id, changes);
+    } catch (e) {
+      notify('No se pudo guardar', e instanceof Error ? e.message : String(e));
+      return reload();
+    }
+    const pasos = data.pasos.filter(p => p.rutina_id === r.id).map(p => ({ id: p.id, texto: p.texto }));
+    const { id: _id, pausada_at: _p, created_at: _c, ...input } = r;
+    await updateRutina(r, {
+      ...input,
+      titulo: changes.titulo ?? r.titulo,
+      notas: changes.notas !== undefined ? changes.notas : r.notas,
+      area_id: changes.area_id !== undefined ? changes.area_id : r.area_id,
+      objetivo_id: changes.objetivo_id !== undefined ? changes.objetivo_id : r.objetivo_id,
+      hora_inicio: changes.hora_inicio ?? r.hora_inicio,
+      duracion_min: changes.duracion_min !== undefined ? changes.duracion_min : r.duracion_min,
+    }, pasos);
+  };
+
+  // Checklist: marcar/desmarcar un paso de la ocurrencia. Al marcar el
+  // último, la ocurrencia se completa (con su XP y Deshacer).
+  const togglePaso = (item: Item, pasoId: string) => {
+    const hecho = data.itemPasos.some(p => p.item_id === item.id && p.paso_id === pasoId);
+    patch(d => ({
+      itemPasos: hecho
+        ? d.itemPasos.filter(p => !(p.item_id === item.id && p.paso_id === pasoId))
+        : [...d.itemPasos, { item_id: item.id, paso_id: pasoId }],
+    }));
+    persist(() => api.setPaso(item.id, pasoId, !hecho));
+    if (hecho) return false;
+    const pasos = data.pasos.filter(p => p.rutina_id === item.rutina_id);
+    const marcados = new Set(data.itemPasos.filter(p => p.item_id === item.id).map(p => p.paso_id)).add(pasoId);
+    const completa = pasos.length > 0 && pasos.every(p => marcados.has(p.id));
+    if (completa) complete(item);
+    return completa;
   };
 
   // ── Entradas (Home / Buzón) ────────────────────────────────────────────────
@@ -245,6 +326,7 @@ const useZenState = (onAuthLost: () => void) => {
   return {
     ...data, loading, reload,
     addItem, editItem, complete, remove, reprogramar, duplicate, convertToRutina,
+    createRutina, updateRutina, setRutinaPausada, deleteRutina, editarRutinaDesdeOcurrencia, togglePaso,
     capture, descartar, ordenar, deshacerEntrada,
     createArea, updateArea, moveArea,
     createObjetivo, updateObjetivo, deleteObjetivo,

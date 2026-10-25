@@ -56,3 +56,26 @@ export const matchesFilter = (item: Item, areaId: string | null, query: string) 
   if (!q) return true;
   return item.titulo.toLowerCase().includes(q) || (item.notas ?? '').toLowerCase().includes(q);
 };
+
+// "Lo próximo" del Home (decisión 4): hasta 3 pendientes de hoy, en este
+// orden: los que tienen hora y aún no llegan (por hora), luego los de todo
+// el día (incluye flexibles por planificar) y al final los de hora ya
+// pasada que siguen pendientes. Lo que solo ocupa tiempo (no marcable) y
+// ya pasó no se muestra.
+export const proximosDeHoy = (
+  items: Item[],
+  noMarcables: Set<string>, // ids de rutinas que no se marcan
+  ahora: Date = new Date(),
+  max = 3,
+): Item[] => {
+  const hoy = localDayKey(ahora);
+  const hhmm = `${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`;
+  const deHoy = items.filter(i => !i.completada_at && i.fecha === hoy);
+  const h = (i: Item) => (i.hora_inicio ?? '').slice(0, 5);
+  const proximos = deHoy.filter(i => i.hora_inicio && h(i) >= hhmm).sort((a, b) => h(a).localeCompare(h(b)));
+  const todoElDia = deHoy.filter(i => !i.hora_inicio).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const pasados = deHoy
+    .filter(i => i.hora_inicio && h(i) < hhmm && !(i.rutina_id && noMarcables.has(i.rutina_id)))
+    .sort((a, b) => h(a).localeCompare(h(b)));
+  return [...proximos, ...todoElDia, ...pasados].slice(0, max);
+};

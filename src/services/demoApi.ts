@@ -26,9 +26,18 @@ const objetivos: Objetivo[] = [
   { id: uid(), titulo: 'Banca 100 kg', notas: null, area_id: area('Entrenamiento'), fecha_meta: null, completado_at: null },
 ];
 
+// Las tres variantes de horario (etapa 3): sin hora con checklist,
+// flexible (por planificar) y un turno fijo que solo ocupa tiempo.
+const rutina = (p: Partial<Rutina> & Pick<Rutina, 'titulo'>): Rutina => ({
+  id: uid(), notas: null, area_id: null, recurrencia: 'diaria', dias_semana: null, dia_mes: null,
+  modo_horario: 'sin_hora', hora_inicio: null, duracion_min: null, rango_inicio: null, rango_fin: null,
+  marcable: true, objetivo_id: null, pausada_at: null, created_at: '2026-09-01T12:00:00Z', ...p,
+});
 const rutinas: Rutina[] = [
-  { id: uid(), titulo: 'Rutina mañana', notas: null, area_id: area('Personal'), recurrencia: 'diaria', dias_semana: null, dia_mes: null, modo_horario: 'sin_hora', hora_inicio: null, duracion_min: null, rango_inicio: null, rango_fin: null, created_at: now(), marcable: true, objetivo_id: null, pausada_at: null },
-  { id: uid(), titulo: 'Entrenar', notas: null, area_id: area('Entrenamiento'), recurrencia: 'diaria', dias_semana: null, dia_mes: null, modo_horario: 'sin_hora', hora_inicio: null, duracion_min: null, rango_inicio: null, rango_fin: null, created_at: now(), marcable: true, objetivo_id: objetivos[1].id, pausada_at: null },
+  rutina({ titulo: 'Rutina mañana', area_id: area('Personal') }),
+  rutina({ titulo: 'Entrenar', area_id: area('Entrenamiento'), objetivo_id: objetivos[1].id, modo_horario: 'flexible', rango_inicio: '18:00:00', rango_fin: '22:00:00' }),
+  rutina({ titulo: 'Turno', area_id: area('Trabajo'), recurrencia: 'semanal', dias_semana: [1, 2, 3, 4, 5], modo_horario: 'fija', hora_inicio: '09:00:00', duracion_min: 480, marcable: false }),
+  rutina({ titulo: 'Revisión semanal', area_id: area('Personal'), recurrencia: 'semanal', dias_semana: [0], modo_horario: 'fija', hora_inicio: '20:00:00', duracion_min: 30 }),
 ];
 
 const item = (p: Partial<Item> & Pick<Item, 'titulo'>): Item & { deleted?: boolean } => ({
@@ -53,7 +62,7 @@ const entradas: Entrada[] = [
 ];
 
 // Checklist (etapa 3)
-const pasos: RutinaPaso[] = [];
+const pasos: RutinaPaso[] = ['Tender la cama', 'Ducha', 'Desayuno'].map((texto, orden) => ({ id: uid(), rutina_id: rutinas[0].id, texto, orden }));
 const itemPasos: ItemPaso[] = [];
 
 const perfil: Perfil = { id: 'demo', username: 'Demo', avatar_url: null, xp_points: 1680, level: 17 };
@@ -81,7 +90,7 @@ export const demoApi: ZenApi = {
     const hoy = localDayKey(d);
     for (const r of rutinas.filter(r => routineOccursOn(r, d))) {
       if (!items.some(i => i.rutina_id === r.id && i.ocurrencia_fecha === hoy)) {
-        items.push(item({ titulo: r.titulo, area_id: r.area_id, objetivo_id: r.objetivo_id, rutina_id: r.id, ocurrencia_fecha: hoy, fecha: hoy }));
+        items.push(item({ ...datosOcurrencia(r), rutina_id: r.id, ocurrencia_fecha: hoy, fecha: hoy }));
       }
     }
     return {
