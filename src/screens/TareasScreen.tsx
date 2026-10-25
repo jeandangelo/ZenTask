@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, fonts, radius, space } from '../theme/tokens';
-import { useZen } from '../state/ZenStore';
+import { useAreas, useZen } from '../state/ZenStore';
 import { useRutinaUi } from '../state/RutinaUi';
 import { Entrada, Item } from '../domain/types';
 import { groupBySection, matchesFilter, ORDERED_SECTIONS, SECTION_TITLES, SectionKey } from '../domain/sections';
@@ -14,17 +14,22 @@ import ItemRow from '../components/items/ItemRow';
 import ItemFormSheet from '../components/items/ItemFormSheet';
 import ItemOptionsSheet from '../components/items/ItemOptionsSheet';
 import EntradaSheet from '../components/items/EntradaSheet';
+import CalendarioView from '../components/calendario/CalendarioView';
 
-// Tareas en modo lista (decisión 5): Sin ordenar (Buzón) · Vencidas · Hoy ·
-// Pronto (7 días) · Más adelante · Sin fecha. Las compras van en su pestaña.
-// El modo calendario llega en la etapa 4.
+// Tareas (decisión 5) con interruptor lista ↔ calendario.
+// Lista: Sin ordenar (Buzón) · Vencidas · Hoy · Pronto (7 días) · Más
+// adelante · Sin fecha. Calendario (etapa 4): día, semana y mes.
+// Las compras sin fecha van en su pestaña.
 
 type Fila = { kind: 'item'; item: Item } | { kind: 'entrada'; entrada: Entrada };
 type Seccion = { key: SectionKey | 'sin_ordenar'; title: string; data: Fila[] };
 
 export default function TareasScreen() {
-  const { items, entradas, addItem } = useZen();
-  const { guardarOcurrencia } = useRutinaUi();
+  const { items, entradas, addItem, rutinas, pasos, complete, reprogramar, editItem } = useZen();
+  const { guardarOcurrencia, abrirChecklist, editarRutina } = useRutinaUi();
+  const { byId } = useAreas();
+  const [modo, setModo] = useState<'lista' | 'calendario'>('lista');
+  const [diaCal, setDiaCal] = useState(localDayKey());
   const [area, setArea] = useState<string | null>(null);
   const [buscando, setBuscando] = useState(false);
   const [query, setQuery] = useState('');
@@ -49,11 +54,42 @@ export default function TareasScreen() {
     ].filter(s => s.data.length > 0);
   }, [items, entradas, area, query, today]);
 
+  // Calendario: pendientes con fecha (compras con fecha incluidas), filtrados
+  const itemsCal = useMemo(
+    () => items.filter(i => i.fecha && (i.tipo !== 'compra' || !!i.fecha) && matchesFilter(i, area, query)),
+    [items, area, query],
+  );
+  const colorDe = (areaId: string | null) => (areaId && byId.get(areaId)?.color) || colors.metal;
+  // Con rutina con checklist, el check abre los pasos
+  const marcar = (it: Item) => (it.rutina_id && pasos.some(p => p.rutina_id === it.rutina_id) ? abrirChecklist(it) : complete(it));
+  // Mover un bloque: el cambio de día queda registrado como reprogramación
+  // (historial honesto); la hora va como edición. En una rutina de hora
+  // fija, guardarOcurrencia pregunta "¿Solo hoy o toda la rutina?".
+  const moverBloque = (it: Item, fecha: string, hora: string) => {
+    if (it.rutina_id) return guardarOcurrencia(it, { fecha, hora_inicio: hora });
+    if (fecha !== it.fecha) {
+      reprogramar(it, fecha);
+      editItem({ ...it, fecha }, { hora_inicio: hora });
+    } else {
+      editItem(it, { hora_inicio: hora });
+    }
+  };
+  // Valores iniciales del formulario de creación (memo: si cambian, el formulario se reinicia)
+  const inicialCrear = useMemo(
+    () => ({ ...(area ? { area_id: area } : {}), ...(modo === 'calendario' ? { fecha: diaCal } : {}) }),
+    [area, modo, diaCal],
+  );
+
   return (
     <View style={styles.flex}>
       <ScreenHeader
         title="Tareas"
-        actions={[{ icon: 'magnify', label: 'Buscar', active: buscando, onPress: () => { setBuscando(b => !b); setQuery(''); } }]}
+        actions={[
+          { icon: 'magnify', label: 'Buscar', active: buscando, onPress: () => { setBuscando(b => !b); setQuery(''); } },
+          modo === 'lista'
+            ? { icon: 'calendar-month-outline', label: 'Ver calendario', onPress: () => setModo('calendario') }
+            : { icon: 'format-list-bulleted', label: 'Ver lista', onPress: () => setModo('lista') },
+        ]}
       />
       {buscando && (
         <View style={styles.search}>
@@ -62,6 +98,19 @@ export default function TareasScreen() {
       )}
       <View><AreaChips value={area} onChange={setArea} /></View>
 
+      {modo === 'calendario' ? (
+        <CalendarioView
+          dia={diaCal}
+          setDia={setDiaCal}
+          items={itemsCal}
+          rutinas={rutinas}
+          colorDe={colorDe}
+          onEditItem={setEditando}
+          onEditRutina={editarRutina}
+          onCheck={marcar}
+          onMover={moverBloque}
+        />
+      ) : (
       <SectionList
         sections={secciones}
         keyExtractor={f => (f.kind === 'item' ? f.item.id : f.entrada.id)}
@@ -100,6 +149,7 @@ export default function TareasScreen() {
             : <EmptyState icon="checkbox-marked-circle-outline" text="Todo al día. Crea una tarea con + o captura algo desde Inicio." />
         }
       />
+      )}
 
       <TouchableOpacity style={styles.fab} onPress={() => setCreando(true)} accessibilityLabel="Nueva tarea">
         <MaterialCommunityIcons name="plus" size={28} color="#FFFFFF" />
@@ -108,7 +158,7 @@ export default function TareasScreen() {
       <ItemFormSheet
         visible={creando}
         title="Nueva tarea"
-        initial={area ? { area_id: area } : undefined}
+        initial={inicialCrear}
         onClose={() => setCreando(false)}
         onSubmit={async input => { setCreando(false); await addItem({ tipo: 'tarea', ...input }); }}
       />
