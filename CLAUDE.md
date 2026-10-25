@@ -48,8 +48,11 @@ celular. Jean aprobó la decisión de proyectar solo rutinas de hora fija.
 PENDIENTE de ejecutar por Jean: 20261025000000_contraer_modelo_viejo.sql
 (quita columnas viejas de items, la tabla columns y toggle_task_status /
 add_xp; probada en PGlite contra el respaldo). Después de correrla, borrar
-de este archivo la sección "Modelo conceptual VIEJO". Siguiente: etapa 6
-(IA), que empieza por decidir el costo mensual aceptable.
+de este archivo la sección "Modelo conceptual VIEJO". La migración contraer es OPCIONAL: la app funciona igual sin ella;
+Jean la posterga (25 oct). Etapa 6 (IA): presupuesto $0 (decisión de Jean,
+25 oct: ya paga su suscripción de Claude, que no cubre la API). Solo se
+construye con un plan gratuito (p. ej. Gemini o Groq) y si Jean lo aprueba;
+si no, queda en espera. Las reglas locales (etapa 2) siguen siendo la base.
 Migraciones ejecutadas por Jean: 20261009000000, 20261009000100 (8 oct) y
 20261009000200 (películas → compras, 9 oct). Las columnas viejas siguen en
 la base (fase "expandir"); la migración "contraer" se muestra a Jean antes.
