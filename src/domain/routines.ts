@@ -91,13 +91,24 @@ export const cumplimientoSemana = (
   hoy: Date = new Date(),
 ): { hechas: number; programadas: number } => {
   const lunes = addDays(startOfDay(hoy), -((hoy.getDay() + 6) % 7));
+  return cumplimientoEntre(r, fechasHechas, localDayKey(lunes), localDayKey(hoy));
+};
+
+// Igual que cumplimientoSemana, pero entre dos días cualquiera (ambos
+// incluidos): cuántos días tocaba la rutina y en cuántos se completó.
+// No cuenta días anteriores a la creación de la rutina.
+export const cumplimientoEntre = (
+  r: Pick<Rutina, 'recurrencia' | 'dias_semana' | 'dia_mes' | 'created_at'>,
+  fechasHechas: Set<string>,
+  desde: string,
+  hasta: string,
+): { hechas: number; programadas: number } => {
   const creada = localDayKey(parseISO(r.created_at));
   let programadas = 0, hechas = 0;
-  for (let d = lunes; d <= hoy; d = addDays(d, 1)) {
-    const key = localDayKey(d);
-    if (key < creada || !routineOccursOn({ ...r, pausada_at: null }, d)) continue;
+  for (let d = parseISO(desde > creada ? desde : creada); localDayKey(d) <= hasta; d = addDays(d, 1)) {
+    if (!routineOccursOn({ ...r, pausada_at: null }, d)) continue;
     programadas++;
-    if (fechasHechas.has(key)) hechas++;
+    if (fechasHechas.has(localDayKey(d))) hechas++;
   }
   return { hechas, programadas };
 };

@@ -19,6 +19,15 @@ export const colors = {
   overlay: 'rgba(0,0,0,0.6)',
 };
 
+// Gráficos de Progreso: par validado con el validador de paleta (modo
+// oscuro, sobre surface): luminosidad, croma, daltonismo y contraste OK.
+// El rojo de 'vencidas' es más oscuro que danger para entrar en la banda.
+export const chart = {
+  completadas: '#8B5CF6',
+  vencidas: '#D9536A',
+  pista: '#22222A', // fondo de las barras de avance
+};
+
 // Paleta para áreas: 8 colores apagados que se leen sobre negro. El morado
 // de acento queda reservado para la interfaz, por eso no está aquí.
 export const AREA_COLORS = [
