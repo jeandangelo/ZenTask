@@ -7,8 +7,10 @@ import { Item, Rutina } from './types';
 // semana y del mes, bloques que se superponen y proyección de rutinas.
 
 export const MIN_DIA = 24 * 60;
-export const PASO_MIN = 15;          // al arrastrar, la hora se ajusta de a 15 min
-export const DURACION_DEFECTO = 60;  // un ítem con hora pero sin duración ocupa 1 h en la grilla
+export const PASO_MIN = 5;           // al arrastrar o estirar, la hora se ajusta de a 5 min (6:40 es alcanzable)
+// Un ítem con hora pero sin duración es un "momento" (levantarse a las 6):
+// en la grilla ocupa solo este espacio visual y se muestra sin hora de fin.
+export const MIN_VISUAL_MOMENTO = 30; // ~26 px: alcanza para el título en una línea
 
 // 'HH:mm[:ss]' → minutos desde medianoche
 export const minutosDe = (t: string | null | undefined): number | null => {
@@ -22,7 +24,7 @@ export const horaDe = (min: number): string =>
   `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 
 // Hora nueva después de arrastrar `deltaPx` en una grilla de `pxPorHora`:
-// se ajusta a 15 min y no se sale del día.
+// se ajusta de a PASO_MIN y no se sale del día.
 export const moverMinutos = (inicio: number, deltaPx: number, pxPorHora: number, duracion = 0): number => {
   const crudo = inicio + (deltaPx / pxPorHora) * 60;
   const ajustado = Math.round(crudo / PASO_MIN) * PASO_MIN;
@@ -83,12 +85,27 @@ export const distribuir = <T>(entradas: { ref: T; inicio: number; fin: number }[
   return resultado;
 };
 
-// Rango en minutos de un ítem con hora (sin duración = 1 h; no pasa de medianoche)
-export const rangoDe = (item: Pick<Item, 'hora_inicio' | 'duracion_min'>): { inicio: number; fin: number } | null => {
+// Rango en minutos de un ítem con hora (no pasa de medianoche). Sin
+// duración es un momento: ocupa MIN_VISUAL_MOMENTO y viene marcado como tal.
+export const rangoDe = (item: Pick<Item, 'hora_inicio' | 'duracion_min'>): { inicio: number; fin: number; momento: boolean } | null => {
   const inicio = minutosDe(item.hora_inicio);
   if (inicio == null) return null;
-  return { inicio, fin: Math.min(MIN_DIA, inicio + Math.max(PASO_MIN, item.duracion_min ?? DURACION_DEFECTO)) };
+  const momento = !item.duracion_min;
+  return { inicio, fin: Math.min(MIN_DIA, inicio + (momento ? MIN_VISUAL_MOMENTO : Math.max(PASO_MIN, item.duracion_min!))), momento };
 };
+
+// Duración nueva al estirar el borde inferior de un bloque `deltaPx`:
+// de a 5 min, mínimo 5 y sin pasar de medianoche. Un momento (sin
+// duración) parte desde 0.
+export const estirarDuracion = (inicio: number, duracion: number, deltaPx: number, pxPorHora: number): number => {
+  const cruda = duracion + (deltaPx / pxPorHora) * 60;
+  const ajustada = Math.round(cruda / PASO_MIN) * PASO_MIN;
+  return Math.max(PASO_MIN, Math.min(MIN_DIA - inicio, ajustada));
+};
+
+// "15 min", "1 h", "1 h 30 min"
+export const textoDuracion = (min: number): string =>
+  min < 60 ? `${min} min` : min % 60 === 0 ? `${min / 60} h` : `${Math.floor(min / 60)} h ${min % 60} min`;
 
 // Ocurrencia proyectada de una rutina en un día futuro: todavía no existe
 // en la base (se genera recién ese día), solo se dibuja para planificar.
@@ -122,3 +139,18 @@ export const puntosDelMes = (items: Item[]): Map<string, string[]> => {
 };
 
 export const diasDelMes = (dia: string) => getDaysInMonth(parseISO(dia));
+
+// Dónde cae un ítem arrastrado desde "todo el día" a la grilla. `x`/`y`
+// son relativos a la vista de la grilla completa (franja incluida);
+// `inicioGrilla` es dónde empiezan las horas y `scroll` cuánto se bajó.
+// Devuelve null si se suelta todavía sobre la franja.
+export const destinoSoltar = (p: {
+  x: number; y: number; inicioGrilla: number; scroll: number;
+  pxPorHora: number; margenHoras: number; anchoDia: number; dias: number;
+}): { minutos: number; diaIndice: number } | null => {
+  if (p.y < p.inicioGrilla) return null;
+  const crudo = ((p.y - p.inicioGrilla + p.scroll) / p.pxPorHora) * 60;
+  const minutos = Math.max(0, Math.min(MIN_DIA - PASO_MIN, Math.round(crudo / PASO_MIN) * PASO_MIN));
+  const diaIndice = Math.max(0, Math.min(p.dias - 1, Math.floor((p.x - p.margenHoras) / Math.max(1, p.anchoDia))));
+  return { minutos, diaIndice };
+};
