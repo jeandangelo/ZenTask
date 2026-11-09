@@ -41,3 +41,22 @@ Pendiente para el chat de diseño:
   ejemplo, la compra de los zapatos Y el evento del matrimonio desde una
   sola nota). Jean no lo necesita por ahora; queda para cuando se diseñe
   la IA, que es la que separaría una frase en varias cosas.
+
+## Etapas 3-4 (9 nov 2026)
+
+### Planificar el día en el calendario — resuelto
+Jean organiza la mañana así: "Levantarme" a las 6:00 (dura un minuto),
+después la rutina de la mañana hasta ~6:40, luego trabajo. Problemas que
+vio: las rutinas sin hora quedaban arriba en "todo el día" sin poder
+arrastrarse a una hora; no sabía si darles hora cambiaba también los días
+siguientes; y todo lo que tenía hora sin duración se dibujaba como 1 hora.
+
+Cambios:
+- Lo de "todo el día" se mantiene apretado y se arrastra a la grilla.
+- Al darle hora a una rutina sin hora, la app pregunta "¿Solo hoy o
+  siempre a esta hora?". "Siempre" la vuelve rutina de hora fija.
+  (La especificación solo preguntaba en rutinas de hora fija; las
+  flexibles siguen aplicando solo a hoy, ahora con un aviso.)
+- Sin duración = un momento: se dibuja compacto, con solo la hora de
+  inicio. La duración se elige con opciones rápidas o estirando el borde
+  inferior del bloque. Arrastrar y estirar van de a 5 minutos.
