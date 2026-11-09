@@ -5,6 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { format, parseISO } from 'date-fns';
 import { colors, fonts, radius, space, type } from '../../theme/tokens';
 import { friendlyDay, localDayKey, shortTime } from '../../domain/dates';
+import { textoDuracion } from '../../domain/calendar';
 
 // Campos de formulario con el estilo de la app. Fecha y hora usan el
 // selector del navegador en la web (PWA) y el nativo en el celular.
@@ -85,6 +86,39 @@ export function TimeField({ value, onChange }: { value: string | null; onChange:
           onChange={(_, d) => { setOpen(false); if (d) onChange(format(d, 'HH:mm')); }}
         />
       )}
+    </View>
+  );
+}
+
+// Duración con opciones rápidas. "Sin duración" = un momento (levantarse):
+// en el calendario se dibuja compacto, sin hora de fin. Pedido de Jean
+// (9 nov): no todo dura 1 hora.
+const DURACIONES = [null, 5, 15, 30, 45, 60, 90, 120];
+
+export function DuracionField({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+  const [otra, setOtra] = useState(!DURACIONES.includes(value));
+  const pastilla = (activa: boolean, label: string, onPress: () => void) => (
+    <TouchableOpacity key={label} onPress={onPress} style={[styles.segment, activa && styles.segmentActive]} accessibilityState={{ selected: activa }}>
+      <Text style={[styles.segmentText, activa && { color: colors.text }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+  return (
+    <View>
+      <View style={styles.segmented}>
+        {DURACIONES.map(d => pastilla(!otra && value === d, d === null ? 'Sin duración' : textoDuracion(d), () => { setOtra(false); onChange(d); }))}
+        {pastilla(otra, 'Otra', () => setOtra(true))}
+      </View>
+      {otra && (
+        <Input
+          style={{ marginTop: space.sm }}
+          value={value ? String(value) : ''}
+          onChangeText={t => onChange(parseInt(t.replace(/\D/g, ''), 10) || null)}
+          keyboardType="number-pad"
+          placeholder="Minutos"
+          accessibilityLabel="Duración en minutos"
+        />
+      )}
+      {value === null && !otra && <Text style={[type.meta, { marginTop: 6 }]}>Un momento: en el calendario se ve solo la hora de inicio.</Text>}
     </View>
   );
 }

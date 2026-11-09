@@ -9,7 +9,7 @@ import { confirmAction, notify } from '../../services/dialogs';
 import { useAreas, useZen } from '../../state/ZenStore';
 import { Sheet, SheetOption } from '../ui/Sheet';
 import { Chip } from '../ui/AreaChips';
-import { Field, Input, PrimaryButton, Segmented, TimeField } from '../ui/Fields';
+import { DuracionField, Field, Input, PrimaryButton, Segmented, TimeField } from '../ui/Fields';
 
 // Crear o editar una rutina (etapa 3). "rutina = null" con visible = crear.
 
@@ -135,19 +135,10 @@ export default function RutinaSheet({ visible, rutina, onClose }: {
         />
       </Field>
       {f.modo_horario === 'fija' && (
-        <View style={styles.row}>
-          <View style={{ flex: 1 }}><Field label="Hora"><TimeField value={f.hora_inicio} onChange={v => set({ hora_inicio: v })} /></Field></View>
-          <View style={{ flex: 1 }}>
-            <Field label="Duración (min)">
-              <Input
-                value={f.duracion_min ? String(f.duracion_min) : ''}
-                onChangeText={t => set({ duracion_min: parseInt(t.replace(/\D/g, ''), 10) || null })}
-                keyboardType="number-pad"
-                placeholder="Ej. 60"
-              />
-            </Field>
-          </View>
-        </View>
+        <>
+          <Field label="Hora"><TimeField value={f.hora_inicio} onChange={v => set({ hora_inicio: v })} /></Field>
+          <Field label="Duración"><DuracionField value={f.duracion_min} onChange={v => set({ duracion_min: v })} /></Field>
+        </>
       )}
       {f.modo_horario === 'flexible' && (
         <>

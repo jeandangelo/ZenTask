@@ -6,7 +6,7 @@ import { Item, ItemInput, TipoItem } from '../../domain/types';
 import { useAreas, useZen } from '../../state/ZenStore';
 import { Sheet } from '../ui/Sheet';
 import { Chip } from '../ui/AreaChips';
-import { DateField, Field, Input, PrimaryButton, Segmented, TimeField } from '../ui/Fields';
+import { DateField, DuracionField, Field, Input, PrimaryButton, Segmented, TimeField } from '../ui/Fields';
 
 // Formulario de ítem (R3): por defecto SOLO el título — escribir y Enter.
 // "Opciones avanzadas" despliega tipo, notas, fecha, hora, duración, área
@@ -95,13 +95,8 @@ export default function ItemFormSheet({ visible, onClose, onSubmit, item, initia
             </View>
           )}
           {!esCompra && f.hora_inicio && f.fecha ? (
-            <Field label="Duración (min)">
-              <Input
-                value={f.duracion_min ? String(f.duracion_min) : ''}
-                onChangeText={t => set({ duracion_min: parseInt(t.replace(/\D/g, ''), 10) || null })}
-                keyboardType="number-pad"
-                placeholder="Ej. 60"
-              />
+            <Field label="Duración">
+              <DuracionField value={f.duracion_min ?? null} onChange={v => set({ duracion_min: v })} />
             </Field>
           ) : null}
           {activas.length > 0 && (
