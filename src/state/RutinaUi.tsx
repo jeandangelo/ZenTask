@@ -4,6 +4,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, fonts, radius, space } from '../theme/tokens';
 import { Item, ItemInput, Rutina } from '../domain/types';
 import { useZen } from './ZenStore';
+import { useToast } from '../components/ui/Toast';
+import { shortTime } from '../domain/dates';
 import { Sheet, SheetOption } from '../components/ui/Sheet';
 import RutinaSheet from '../components/rutinas/RutinaSheet';
 
@@ -12,9 +14,12 @@ import RutinaSheet from '../components/rutinas/RutinaSheet';
 //
 // - abrirChecklist: los pasos de la ocurrencia de hoy.
 // - editarRutina: formulario de la rutina (o una nueva, con null).
-// - guardarOcurrencia: guarda la edición de una ocurrencia. En rutinas de
-//   hora fija pregunta "¿Solo hoy o toda la rutina?" (decisión 7); en las
-//   demás aplica solo a ese día sin preguntar.
+// - guardarOcurrencia: guarda la edición de una ocurrencia.
+//   · Hora fija: pregunta "¿Solo hoy o toda la rutina?" (decisión 7).
+//   · Sin hora, al darle una hora: pregunta "¿Solo hoy o siempre a esta
+//     hora?" ("siempre" la vuelve rutina de hora fija). Pedido de Jean
+//     (9 nov): no quedaba claro si asignar hora cambiaba las siguientes.
+//   · Lo demás aplica solo a ese día, y un aviso lo dice.
 
 interface RutinaUi {
   abrirChecklist: (item: Item) => void;
@@ -33,13 +38,37 @@ export function RutinaUiProvider({ children }: { children: React.ReactNode }) {
   const zen = useZen();
   const [checklist, setChecklist] = useState<Item | null>(null);
   const [rutinaForm, setRutinaForm] = useState<{ rutina: Rutina | null } | null>(null);
-  const [alcance, setAlcance] = useState<{ item: Item; changes: ItemInput } | null>(null);
+  const toast = useToast();
+  const [alcance, setAlcance] = useState<{ item: Item; changes: ItemInput; modo: 'fija' | 'asignarHora' } | null>(null);
 
   const guardarOcurrencia = (item: Item, changes: ItemInput) => {
     const r = item.rutina_id ? zen.rutinas.find(x => x.id === item.rutina_id) : undefined;
-    if (r?.modo_horario === 'fija') setAlcance({ item, changes });
-    else zen.editItem(item, changes);
+    if (!r) return zen.editItem(item, changes);
+    const asignaHora = !!changes.hora_inicio && changes.hora_inicio !== item.hora_inicio;
+    if (r.modo_horario === 'fija') return setAlcance({ item, changes, modo: 'fija' });
+    if (r.modo_horario === 'sin_hora' && asignaHora) return setAlcance({ item, changes, modo: 'asignarHora' });
+    zen.editItem(item, changes);
+    toast({
+      message: r.modo_horario === 'flexible' && asignaHora
+        ? `${r.titulo} a las ${shortTime(changes.hora_inicio)} solo hoy (sigue flexible)`
+        : 'Cambio solo para hoy. Para cambiar la rutina: ⋯ → Editar rutina',
+    });
   };
+
+  const soloHoy = () => {
+    if (!alcance) return;
+    zen.editItem(alcance.item, alcance.changes);
+    toast({ message: 'Cambio solo para hoy: la rutina no cambia' });
+    setAlcance(null);
+  };
+  const todaLaRutina = () => {
+    if (!alcance) return;
+    zen.editarRutinaDesdeOcurrencia(alcance.item, alcance.changes, alcance.modo === 'asignarHora');
+    setAlcance(null);
+  };
+  const tituloAlcance = alcance?.modo === 'asignarHora'
+    ? `¿${alcance.item.titulo} a las ${shortTime(alcance.changes.hora_inicio)} solo hoy o siempre?`
+    : '¿Solo hoy o toda la rutina?';
 
   // La ocurrencia de la checklist se lee del store (si se completó, ya no está)
   const itemChecklist = checklist ? zen.items.find(i => i.id === checklist.id) ?? null : null;
@@ -73,15 +102,16 @@ export function RutinaUiProvider({ children }: { children: React.ReactNode }) {
         <Text style={styles.hint}>Al marcar el último paso, la rutina queda completada.</Text>
       </Sheet>
 
-      <Sheet visible={!!alcance} onClose={() => setAlcance(null)} title="¿Solo hoy o toda la rutina?">
-        <SheetOption icon="calendar-today" label="Solo hoy" onPress={() => {
-          if (alcance) zen.editItem(alcance.item, alcance.changes);
-          setAlcance(null);
-        }} />
-        <SheetOption icon="repeat" label="Toda la rutina (desde hoy)" onPress={() => {
-          if (alcance) zen.editarRutinaDesdeOcurrencia(alcance.item, alcance.changes);
-          setAlcance(null);
-        }} />
+      <Sheet visible={!!alcance} onClose={() => setAlcance(null)} title={tituloAlcance}>
+        <SheetOption icon="calendar-today" label="Solo hoy" onPress={soloHoy} />
+        <SheetOption
+          icon="repeat"
+          label={alcance?.modo === 'asignarHora' ? 'Siempre a esta hora (desde hoy)' : 'Toda la rutina (desde hoy)'}
+          onPress={todaLaRutina}
+        />
+        {alcance?.modo === 'asignarHora' && (
+          <Text style={styles.hint}>"Siempre" la vuelve una rutina de hora fija: sus próximos días traerán esta hora. Puedes cambiarla cuando quieras en Rutinas.</Text>
+        )}
       </Sheet>
 
       <RutinaSheet visible={!!rutinaForm} rutina={rutinaForm?.rutina ?? null} onClose={() => setRutinaForm(null)} />

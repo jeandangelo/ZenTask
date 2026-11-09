@@ -166,7 +166,9 @@ const useZenState = (onAuthLost: () => void) => {
   // "Toda la rutina" desde una ocurrencia: primero se guarda la ocurrencia
   // (incluida una fecha nueva, que es solo de ese día) y después la rutina,
   // que copia título, notas, área, objetivo y horario a las próximas.
-  const editarRutinaDesdeOcurrencia = async (item: Item, changes: ItemInput) => {
+  // fijarHora: una rutina sin hora pasa a ser de hora fija a la hora elegida
+  // ("siempre a esta hora"); desde ahí sus próximas ocurrencias traen esa hora.
+  const editarRutinaDesdeOcurrencia = async (item: Item, changes: ItemInput, fijarHora = false) => {
     const r = data.rutinas.find(x => x.id === item.rutina_id);
     if (!r) return editItem(item, changes);
     upsertItem({ ...item, ...changes } as Item);
@@ -186,6 +188,7 @@ const useZenState = (onAuthLost: () => void) => {
       objetivo_id: changes.objetivo_id !== undefined ? changes.objetivo_id : r.objetivo_id,
       hora_inicio: changes.hora_inicio ?? r.hora_inicio,
       duracion_min: changes.duracion_min !== undefined ? changes.duracion_min : r.duracion_min,
+      ...(fijarHora && changes.hora_inicio ? { modo_horario: 'fija' as const, rango_inicio: null, rango_fin: null } : {}),
     }, pasos);
   };
 
