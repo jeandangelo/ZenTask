@@ -109,6 +109,7 @@ export default function TareasScreen() {
           onEditRutina={editarRutina}
           onCheck={marcar}
           onMover={moverBloque}
+          onEstirar={(it, duracion_min) => (it.rutina_id ? guardarOcurrencia(it, { duracion_min }) : editItem(it, { duracion_min }))}
         />
       ) : (
       <SectionList

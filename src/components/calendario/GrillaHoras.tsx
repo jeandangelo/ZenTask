@@ -1,21 +1,37 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { colors, fonts, radius, space } from '../../theme/tokens';
 import { Item, Rutina } from '../../domain/types';
 import { addDaysKey, localDayKey, shortTime } from '../../domain/dates';
-import { distribuir, Proyeccion, proyectarRutinas, rangoDe } from '../../domain/calendar';
+import { destinoSoltar, distribuir, horaDe, MIN_DIA, Proyeccion, proyectarRutinas, rangoDe } from '../../domain/calendar';
 import BloqueCalendario, { EstiloBloque } from './BloqueCalendario';
 
 // Grilla por horas de 1 día (vista día) o 7 (vista semana): arriba la
-// franja "todo el día" (ítems con fecha y sin hora, y rutinas flexibles
-// por planificar); abajo las 24 horas con los bloques posicionados.
+// franja "todo el día" (ítems con fecha y sin hora, rutinas sin hora y
+// flexibles por planificar); abajo las 24 horas con los bloques.
+//
+// Lo de "todo el día" se puede mantener apretado y arrastrar a la grilla
+// para darle una hora (pedido de Jean, 9 nov: planificar la rutina de la
+// mañana después de "levantarme 6:00"). Al acercarse al borde, la grilla
+// se desplaza sola para llegar a cualquier hora.
 
 export const PX_POR_HORA = 52;
-const GUTTER = 42; // columna de las horas
+const GUTTER = 42;          // columna de las horas
+const BORDE_AUTO = 48;      // px desde el borde donde empieza el desplazamiento automático
+const ALTO_MOMENTO = 26;    // un ítem sin duración se dibuja compacto
 
 type Ref = { tipo: 'item'; item: Item } | { tipo: 'proy'; p: Proyeccion };
+type Arrastre = { item: Item; hora: string | null; dia: string };
 
-export default function GrillaHoras({ dias, items, rutinas, colorDe, onEditItem, onEditRutina, onCheck, onMover }: {
+const aHora = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+
+// Solo web: que mantener apretado no seleccione texto ni abra el menú del navegador
+const webSinSeleccion = Platform.select({
+  web: { userSelect: 'none', WebkitTouchCallout: 'none', cursor: 'grab' } as unknown as ViewStyle,
+  default: {},
+});
+
+export default function GrillaHoras({ dias, items, rutinas, colorDe, onEditItem, onEditRutina, onCheck, onMover, onEstirar }: {
   dias: string[];
   items: Item[];               // pendientes con fecha (ya filtrados por área)
   rutinas: Rutina[];
@@ -23,11 +39,23 @@ export default function GrillaHoras({ dias, items, rutinas, colorDe, onEditItem,
   onEditItem: (item: Item) => void;
   onEditRutina: (r: Rutina) => void;
   onCheck: (item: Item) => void;
-  onMover: (item: Item, fecha: string, hora: string) => void;
+  onMover: (item: Item, fecha: string, hora: string) => void;   // mover un bloque o darle hora a uno de "todo el día"
+  onEstirar: (item: Item, duracion: number) => void;
 }) {
   const [ancho, setAncho] = useState(0);
   const [arrastrando, setArrastrando] = useState(false);
+  const [arrastre, setArrastre] = useState<Arrastre | null>(null);
   const scroll = useRef<ScrollView>(null);
+  const raiz = useRef<View>(null);
+  const geo = useRef({ x: 0, y: 0, alto: 0 });  // posición de la grilla en la página
+  const inicioGrilla = useRef(0);                // dónde empiezan las horas (bajo la franja)
+  const scrollY = useRef(0);
+  const ultimo = useRef({ x: 0, y: 0 });
+  // El desplazamiento hacia arriba se activa solo después de haber entrado a
+  // la grilla: si no, al bajar desde la franja la grilla subiría sola.
+  const entroGrilla = useRef(false);
+  const auto = useRef<{ dir: number; timer: ReturnType<typeof setInterval> | null }>({ dir: 0, timer: null });
+  const fantasma = useRef(new Animated.ValueXY()).current;
   const hoy = localDayKey();
   const semana = dias.length > 1;
   const anchoDia = Math.max(0, (ancho - GUTTER) / dias.length);
@@ -36,7 +64,10 @@ export default function GrillaHoras({ dias, items, rutinas, colorDe, onEditItem,
   // Al abrir: la grilla parte una hora antes de ahora (o a las 7:00)
   useEffect(() => {
     const h = dias.includes(hoy) ? Math.max(0, new Date().getHours() - 1) : 7;
-    const t = setTimeout(() => scroll.current?.scrollTo({ y: h * PX_POR_HORA, animated: false }), 50);
+    const t = setTimeout(() => {
+      scroll.current?.scrollTo({ y: h * PX_POR_HORA, animated: false });
+      scrollY.current = h * PX_POR_HORA;
+    }, 50);
     return () => clearTimeout(t);
   }, [dias.join(',')]);
 
@@ -63,8 +94,68 @@ export default function GrillaHoras({ dias, items, rutinas, colorDe, onEditItem,
     return item.tipo === 'evento' ? 'evento' : 'tarea';
   };
 
+  // ── Arrastre desde "todo el día" ───────────────────────────────────────────
+  const destino = (px: number, py: number) => {
+    const d = destinoSoltar({
+      x: px - geo.current.x, y: py - geo.current.y, inicioGrilla: inicioGrilla.current, scroll: scrollY.current,
+      pxPorHora: PX_POR_HORA, margenHoras: GUTTER, anchoDia, dias: dias.length,
+    });
+    return d ? { hora: aHora(d.minutos), dia: dias[d.diaIndice] } : null;
+  };
+
+  const actualizarDestino = () => {
+    const d = destino(ultimo.current.x, ultimo.current.y);
+    setArrastre(a => (a && (a.hora !== (d?.hora ?? null) || (d && a.dia !== d.dia)) ? { ...a, hora: d?.hora ?? null, dia: d?.dia ?? a.dia } : a));
+  };
+
+  const pararAuto = () => {
+    if (auto.current.timer) clearInterval(auto.current.timer);
+    auto.current = { dir: 0, timer: null };
+  };
+
+  const empezar = (item: Item, px: number, py: number) => {
+    setArrastrando(true);
+    entroGrilla.current = false;
+    setArrastre({ item, hora: null, dia: item.fecha ?? dias[0] });
+    raiz.current?.measure((_x, _y, _w, h, pageX, pageY) => { geo.current = { x: pageX, y: pageY, alto: h }; mover(px, py); });
+  };
+
+  const mover = (px: number, py: number) => {
+    ultimo.current = { x: px, y: py };
+    fantasma.setValue({ x: px - geo.current.x - 70, y: py - geo.current.y - 16 });
+    actualizarDestino();
+    // Cerca del borde de abajo (o del de arriba de las horas) la grilla se desplaza sola
+    const ry = py - geo.current.y;
+    if (ry > inicioGrilla.current + BORDE_AUTO) entroGrilla.current = true;
+    const dir = ry > geo.current.alto - BORDE_AUTO ? 1
+      : entroGrilla.current && ry > inicioGrilla.current && ry < inicioGrilla.current + BORDE_AUTO ? -1 : 0;
+    if (dir === auto.current.dir) return;
+    pararAuto();
+    if (!dir) return;
+    auto.current = {
+      dir,
+      timer: setInterval(() => {
+        const max = Math.max(0, 24 * PX_POR_HORA + space.xl - (geo.current.alto - inicioGrilla.current));
+        scrollY.current = Math.max(0, Math.min(max, scrollY.current + dir * 8));
+        scroll.current?.scrollTo({ y: scrollY.current, animated: false });
+        actualizarDestino();
+      }, 30),
+    };
+  };
+
+  const terminar = (soltarEn: { x: number; y: number } | null) => {
+    pararAuto();
+    const a = arrastreRef.current;
+    const d = soltarEn ? destino(soltarEn.x, soltarEn.y) : null;
+    setArrastre(null);
+    setArrastrando(false);
+    if (a && d) onMover(a.item, d.dia, d.hora);
+  };
+  const arrastreRef = useRef<Arrastre | null>(null);
+  arrastreRef.current = arrastre;
+
   return (
-    <View style={{ flex: 1 }} onLayout={e => setAncho(e.nativeEvent.layout.width)}>
+    <View ref={raiz} style={{ flex: 1 }} onLayout={e => setAncho(e.nativeEvent.layout.width)}>
       {/* Franja "todo el día" */}
       {maxTodoElDia > 0 && (
         <View style={styles.todoElDia}>
@@ -76,16 +167,21 @@ export default function GrillaHoras({ dias, items, rutinas, colorDe, onEditItem,
                 const porPlanificar = r?.modo_horario === 'flexible';
                 const color = colorDe(it.area_id);
                 return (
-                  <TouchableOpacity
+                  <ChipArrastrable
                     key={it.id}
-                    onPress={() => onEditItem(it)}
-                    style={[styles.chip, { borderColor: color }, r && { borderStyle: 'dashed' }, it.tipo === 'evento' && { backgroundColor: color }]}
-                    accessibilityLabel={`${it.titulo}${porPlanificar ? ', por planificar' : ''}`}
+                    label={`${it.titulo}${porPlanificar ? ', por planificar' : ''}. Mantén apretado y arrastra para darle hora`}
+                    style={[styles.chip, { borderColor: color }, r && { borderStyle: 'dashed' }, it.tipo === 'evento' && { backgroundColor: color },
+                      arrastre?.item.id === it.id && { opacity: 0.35 }]}
+                    onTap={() => onEditItem(it)}
+                    onInicio={(x, y) => empezar(it, x, y)}
+                    onMover={mover}
+                    onSoltar={(x, y) => terminar({ x, y })}
+                    onCancelar={() => terminar(null)}
                   >
                     <Text numberOfLines={1} style={[styles.chipText, it.tipo === 'evento' && { color: '#0B0B0F' }]}>
                       {it.titulo}{!semana && porPlanificar ? `  ·  por planificar ${shortTime(r!.rango_inicio)}–${shortTime(r!.rango_fin)}` : ''}
                     </Text>
-                  </TouchableOpacity>
+                  </ChipArrastrable>
                 );
               })}
               {semana && sinHora.length > 2 && <Text style={styles.mas}>+{sinHora.length - 2}</Text>}
@@ -94,7 +190,15 @@ export default function GrillaHoras({ dias, items, rutinas, colorDe, onEditItem,
         </View>
       )}
 
-      <ScrollView ref={scroll} style={{ flex: 1 }} scrollEnabled={!arrastrando} contentContainerStyle={{ height: 24 * PX_POR_HORA + space.xl }}>
+      <ScrollView
+        ref={scroll}
+        style={{ flex: 1 }}
+        scrollEnabled={!arrastrando}
+        onLayout={e => { inicioGrilla.current = e.nativeEvent.layout.y; }}
+        onScroll={e => { scrollY.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ height: 24 * PX_POR_HORA + space.xl }}
+      >
         {/* Líneas y etiquetas de las horas */}
         {Array.from({ length: 24 }, (_, h) => (
           <View key={h} style={[styles.horaFila, { top: h * PX_POR_HORA }]}>
@@ -114,16 +218,29 @@ export default function GrillaHoras({ dias, items, rutinas, colorDe, onEditItem,
             width: anchoDia,
           }]} />
         )}
+        {/* Dónde va a caer lo que se arrastra desde "todo el día" */}
+        {arrastre?.hora && (
+          <View style={[styles.destino, {
+            top: ((minutosDeHora(arrastre.hora)) / 60) * PX_POR_HORA,
+            left: GUTTER + Math.max(0, dias.indexOf(arrastre.dia)) * anchoDia + 2,
+            width: anchoDia - 4,
+            height: arrastre.item.duracion_min ? Math.max(20, (arrastre.item.duracion_min / 60) * PX_POR_HORA) : ALTO_MOMENTO,
+          }]}>
+            <Text style={styles.destinoText}>{arrastre.hora}</Text>
+          </View>
+        )}
         {/* Bloques */}
         {anchoDia > 0 && porDia.map(({ dia, bloques }, iDia) => bloques.map(b => {
-          const ancho = anchoDia / b.cols;
+          const anchoCol = anchoDia / b.cols;
+          const momento = b.ref.tipo === 'item' ? !b.ref.item.duracion_min : !b.ref.p.rutina.duracion_min;
           const comun = {
             top: (b.inicio / 60) * PX_POR_HORA,
-            height: Math.max(20, ((b.fin - b.inicio) / 60) * PX_POR_HORA),
-            left: GUTTER + iDia * anchoDia + b.col * ancho,
-            width: ancho,
+            height: momento ? ALTO_MOMENTO : Math.max(20, ((b.fin - b.inicio) / 60) * PX_POR_HORA),
+            left: GUTTER + iDia * anchoDia + b.col * anchoCol,
+            width: anchoCol,
             inicio: b.inicio,
             duracion: b.fin - b.inicio,
+            momento,
             pxPorHora: PX_POR_HORA,
             anchoDia,
             puedeCambiarDia: semana,
@@ -152,12 +269,73 @@ export default function GrillaHoras({ dias, items, rutinas, colorDe, onEditItem,
                 const fecha = desplazados ? addDaysKey(dia, desplazados) : dia;
                 // En la semana no se puede soltar fuera de los 7 días visibles
                 if (semana && !dias.includes(fecha)) return;
-                onMover(it, fecha, `${String(Math.floor(inicio / 60)).padStart(2, '0')}:${String(inicio % 60).padStart(2, '0')}`);
+                onMover(it, fecha, aHora(inicio));
               }}
+              onEstirar={dur => onEstirar(it, dur)}
             />
           );
         }))}
       </ScrollView>
+
+      {/* El ítem "en la mano" mientras se arrastra desde la franja */}
+      {arrastre && (
+        <Animated.View style={[styles.fantasma, { transform: fantasma.getTranslateTransform() }]}>
+          <Text style={styles.fantasmaTitulo} numberOfLines={1}>{arrastre.item.titulo}</Text>
+          <Text style={styles.fantasmaHora}>{arrastre.hora ? `→ ${arrastre.hora}` : 'Suelta en la grilla'}</Text>
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+const minutosDeHora = (h: string) => { const [a, b] = h.split(':').map(Number); return Math.min(MIN_DIA, a * 60 + b); };
+
+// Ítem de "todo el día": tocar = editar; mantener apretado ~0,3 s y
+// arrastrar = llevarlo a una hora de la grilla. Mismo patrón que los
+// bloques (PanResponder, sin librerías).
+function ChipArrastrable({ children, style, label, onTap, onInicio, onMover, onSoltar, onCancelar }: {
+  children: React.ReactNode;
+  style: any;
+  label: string;
+  onTap: () => void;
+  onInicio: (pageX: number, pageY: number) => void;
+  onMover: (pageX: number, pageY: number) => void;
+  onSoltar: (pageX: number, pageY: number) => void;
+  onCancelar: () => void;
+}) {
+  const arrastrando = useRef(false);
+  const tomado = useRef(false);
+  const cb = useRef({ onInicio, onMover, onSoltar, onCancelar });
+  cb.current = { onInicio, onMover, onSoltar, onCancelar };
+  const fin = () => { arrastrando.current = false; tomado.current = false; };
+
+  const responder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => arrastrando.current,
+    onMoveShouldSetPanResponder: () => arrastrando.current,
+    onMoveShouldSetPanResponderCapture: () => arrastrando.current,
+    onPanResponderTerminationRequest: () => !arrastrando.current,
+    onPanResponderGrant: () => { tomado.current = true; },
+    onPanResponderMove: (_, g) => cb.current.onMover(g.moveX, g.moveY),
+    onPanResponderRelease: (_, g) => { fin(); cb.current.onSoltar(g.moveX, g.moveY); },
+    onPanResponderTerminate: () => { fin(); cb.current.onCancelar(); },
+  })).current;
+
+  return (
+    <View {...responder.panHandlers} style={webSinSeleccion}>
+      <Pressable
+        style={style}
+        onPress={() => { if (!arrastrando.current) onTap(); }}
+        onLongPress={e => { arrastrando.current = true; cb.current.onInicio(e.nativeEvent.pageX, e.nativeEvent.pageY); }}
+        // Mantuvo apretado pero soltó sin moverse: no pasa nada. Se espera un
+        // instante porque al empezar a mover el botón también avisa "soltado"
+        // justo antes de que el arrastre tome el gesto.
+        onPressOut={() => setTimeout(() => { if (arrastrando.current && !tomado.current) { fin(); cb.current.onCancelar(); } }, 50)}
+        delayLongPress={300}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+      >
+        {children}
+      </Pressable>
     </View>
   );
 }
@@ -172,5 +350,17 @@ const styles = StyleSheet.create({
   linea: { flex: 1, height: 1, backgroundColor: colors.border, marginTop: 6 },
   sepDia: { position: 'absolute', pointerEvents: 'none', top: 0, bottom: 0, width: 1, backgroundColor: colors.border },
   ahora: { position: 'absolute', pointerEvents: 'none', height: 2, backgroundColor: colors.danger, zIndex: 40 },
+  destino: {
+    position: 'absolute', pointerEvents: 'none', zIndex: 45, borderRadius: radius.sm,
+    borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.accentLight, backgroundColor: 'rgba(139,92,246,0.12)',
+    paddingHorizontal: 5, justifyContent: 'center',
+  },
+  destinoText: { color: colors.accentLight, fontFamily: fonts.semibold, fontSize: 11 },
+  fantasma: {
+    position: 'absolute', top: 0, left: 0, zIndex: 100, pointerEvents: 'none', width: 140,
+    backgroundColor: colors.elevated, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.accentLight,
+    paddingHorizontal: 8, paddingVertical: 5, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 8, elevation: 10,
+  },
+  fantasmaTitulo: { color: colors.text, fontFamily: fonts.semibold, fontSize: 12 },
+  fantasmaHora: { color: colors.accentLight, fontFamily: fonts.medium, fontSize: 11 },
 });
-

@@ -19,7 +19,7 @@ export type VistaCal = 'dia' | 'semana' | 'mes';
 const DIAS_CORTOS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-export default function CalendarioView({ dia, setDia, items, rutinas, colorDe, onEditItem, onEditRutina, onCheck, onMover }: {
+export default function CalendarioView({ dia, setDia, items, rutinas, colorDe, onEditItem, onEditRutina, onCheck, onMover, onEstirar }: {
   dia: string;
   setDia: (d: string) => void;
   items: Item[];
@@ -29,6 +29,7 @@ export default function CalendarioView({ dia, setDia, items, rutinas, colorDe, o
   onEditRutina: (r: Rutina) => void;
   onCheck: (item: Item) => void;
   onMover: (item: Item, fecha: string, hora: string) => void;
+  onEstirar: (item: Item, duracion: number) => void;
 }) {
   const [vista, setVista] = useState<VistaCal>('dia');
   const hoy = localDayKey();
@@ -49,7 +50,7 @@ export default function CalendarioView({ dia, setDia, items, rutinas, colorDe, o
   const puntos = useMemo(() => puntosDelMes(items), [items]);
   const celdas = useMemo(() => grillaMes(dia), [dia]);
 
-  const comunes = { items, rutinas, colorDe, onEditItem, onEditRutina, onCheck, onMover };
+  const comunes = { items, rutinas, colorDe, onEditItem, onEditRutina, onCheck, onMover, onEstirar };
 
   return (
     <View style={{ flex: 1 }}>
